@@ -103,6 +103,23 @@ jobs:
         with:
           fetch-depth: 0
 
+      # 네이버가 해외 데이터센터 IP를 차단(무응답 드롭)하는지 먼저 확인한다.
+      # 여기서 전부 타임아웃이면 이 러너 IP로는 수집이 불가능하다.
+      - name: Naver connectivity probe
+        run: |
+          echo "runner public IP: $(curl -s -m 8 https://api.ipify.org || echo unknown)"
+          for url in \
+            "https://www.naver.com/" \
+            "https://m.land.naver.com/" \
+            "https://m.land.naver.com/complex/ajax/complexListByCortarNo?cortarNo=1130510400" \
+            "https://fin.land.naver.com/"; do
+            code=$(curl -s -o /dev/null -w "%{http_code}" -m 12 \
+              -A "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1" \
+              -H "Referer: https://m.land.naver.com/" \
+              "$url" || echo "TIMEOUT/FAIL")
+            echo "$url -> $code"
+          done
+
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
