@@ -1,8 +1,8 @@
 {
-  "nextStartRegionOffset" : 0,
+  "nextStartRegionOffset" : 17,
   "totalRegions" : 32,
-  "lastRunAt" : "2026-04-21T11:07:04.067862",
-  "lastRegionName" : "서울은평_응암동",
-  "reason" : "SUCCESS",
-  "blockedRegionName" : null
+  "lastRunAt" : "2026-07-21T13:36:33.895391",
+  "lastRegionName" : "서울성북_종암동",
+  "reason" : "FETCH_FAILED_SKIPPED",
+  "blockedRegionName" : "서울성북_종암동"
 }
