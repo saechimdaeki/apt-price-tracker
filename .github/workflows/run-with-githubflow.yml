@@ -1,0 +1,264 @@
+name: run with githubflow
+
+# self-hosted 러너 없이 GitHub 호스티드 러너(ubuntu-latest)만으로 수집을 돌리는 버전.
+# - 헤드풀 Chrome은 xvfb(가상 디스플레이)로 실행한다 (ubuntu-latest에 Chrome 기본 설치).
+# - 주의: 네이버 WAF가 GitHub 데이터센터 IP를 차단(429/abuse)할 수 있다.
+#   차단되면 기존 abuse 안전 로직이 실행을 중단하고 기존 데이터를 보존하므로 데이터가 깨지지는 않는다.
+#   차단이 반복되면 self-hosted 러너(run 워크플로)를 계속 사용해야 한다.
+
+on:
+  workflow_dispatch:
+    inputs:
+      region_scope:
+        description: "실행할 지역 그룹"
+        required: false
+        default: "1) 수원시 (영통구, 광교, 화서)"
+        type: choice
+        options:
+          - "1) 수원시 (영통구, 광교, 화서)"
+          - "2) 용인시 수지구"
+          - "3) 서울 마용성"
+          - "4) 서울 서남권"
+          - "5) 서울 남부"
+          - "6) 서울 동부/서북권"
+          - "7) 성남 전역"
+          - "8) 안양권"
+          - "9) 서울 강남3구"
+          - "10) 서울 노도강"
+      max_regions_per_run:
+        description: "수동 실행 시 수집할 최대 동 수 (기본 0=전체 실행)"
+        required: false
+        default: "0"
+      start_region_offset:
+        description: "수동 실행 시 시작 동 오프셋 (비우면 이전 진행 위치 이어받기)"
+        required: false
+        default: ""
+      max_complex_pages_on_overflow:
+        description: "단지 매물량 많을 때 수집 최대 페이지 수 (기본 3, 권장 2~4)"
+        required: false
+        default: "3"
+      max_complexes_per_region:
+        description: "지역별 수집 최대 단지 수 (기본 0=전체, 권장 15~30)"
+        required: false
+        default: "0"
+      max_overflow_complexes_per_region:
+        description: "페이지 확장(overflow) 허용 단지 수 상한 (기본 4, 0=무제한)"
+        required: false
+        default: "4"
+      article_order:
+        description: "매물 정렬 요청 순서 (기본 prc, prc,date는 요청량 증가)"
+        required: false
+        default: "prc"
+        type: choice
+        options:
+          - "prc"
+          - "prc,date"
+          - "date"
+      max_run_minutes:
+        description: "실행 최대 시간(분). 도달 시 안전 종료 후 다음 오프셋 저장 (기본 165)"
+        required: false
+        default: "165"
+      commit_data:
+        description: "data/apt-listings*.json 변경분 자동 커밋 여부"
+        required: false
+        default: "true"
+        type: choice
+        options:
+          - "true"
+          - "false"
+
+jobs:
+  run:
+    strategy:
+      matrix:
+        region_shard: [1]
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      contents: write
+    timeout-minutes: 180
+    concurrency:
+      group: apt-price-bot-shard-${{ matrix.region_shard }}
+      cancel-in-progress: false
+    env:
+      LANG: en_US.UTF-8
+      LC_ALL: en_US.UTF-8
+      JAVA_TOOL_OPTIONS: -Dfile.encoding=UTF-8 -Dsun.jnu.encoding=UTF-8
+      EVENT_NAME: ${{ github.event_name }}
+      EVENT_SCHEDULE: ${{ github.event.schedule || '' }}
+      INPUT_MAX_REGIONS: ${{ github.event.inputs.max_regions_per_run || '' }}
+      INPUT_START_OFFSET: ${{ github.event.inputs.start_region_offset || '' }}
+      INPUT_MAX_COMPLEX_PAGES_ON_OVERFLOW: ${{ github.event.inputs.max_complex_pages_on_overflow || '' }}
+      INPUT_MAX_COMPLEXES_PER_REGION: ${{ github.event.inputs.max_complexes_per_region || '' }}
+      INPUT_MAX_OVERFLOW_COMPLEXES_PER_REGION: ${{ github.event.inputs.max_overflow_complexes_per_region || '' }}
+      INPUT_ARTICLE_ORDER: ${{ github.event.inputs.article_order || '' }}
+      INPUT_MAX_RUN_MINUTES: ${{ github.event.inputs.max_run_minutes || '' }}
+      INPUT_COMMIT_DATA: ${{ github.event.inputs.commit_data || '' }}
+      INPUT_REGION_SCOPE: ${{ github.event.inputs.region_scope || '' }}
+      MATRIX_REGION_SHARD: ${{ matrix.region_shard }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Grant execute permission for Gradle wrapper
+        run: chmod +x ./gradlew
+
+      # 헤드풀 Chrome을 GUI 없는 러너에서 띄우기 위한 가상 디스플레이 + Chrome 준비.
+      # ubuntu-latest 이미지에 google-chrome/xvfb가 기본 포함되어 있지만, 없을 때를 대비해 설치한다.
+      - name: Prepare Chrome + Xvfb
+        run: |
+          if ! command -v google-chrome >/dev/null 2>&1; then
+            wget -q https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
+            sudo apt-get update
+            sudo apt-get install -y ./google-chrome-stable_current_amd64.deb
+          fi
+          if ! command -v xvfb-run >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y xvfb
+          fi
+          google-chrome --version
+          xvfb-run --help >/dev/null && echo "xvfb ok"
+
+      - name: Install browser helper deps
+        run: |
+          node --version
+          npm ci || npm install
+
+      - name: Resolve run config
+        run: |
+          run_scope="${INPUT_REGION_SCOPE:-1) 수원시 (영통구, 광교, 화서)}"
+          run_shard="$(echo "${run_scope}" | sed -E 's/^([0-9]+).*/\1/')"
+
+          if ! [[ "${run_shard}" =~ ^([1-9]|10)$ ]]; then
+            run_shard="1"
+          fi
+
+          case "${run_shard}" in
+            1) run_scope_label="수원시 (영통구, 광교, 화서)"; run_scope_input="1) 수원시 (영통구, 광교, 화서)" ;;
+            2) run_scope_label="용인시 수지구"; run_scope_input="2) 용인시 수지구" ;;
+            3) run_scope_label="서울 마용성"; run_scope_input="3) 서울 마용성" ;;
+            4) run_scope_label="서울 서남권"; run_scope_input="4) 서울 서남권" ;;
+            5) run_scope_label="서울 남부"; run_scope_input="5) 서울 남부" ;;
+            6) run_scope_label="서울 동부/서북권"; run_scope_input="6) 서울 동부/서북권" ;;
+            7) run_scope_label="성남 전역"; run_scope_input="7) 성남 전역" ;;
+            8) run_scope_label="안양권"; run_scope_input="8) 안양권" ;;
+            9) run_scope_label="서울 강남3구"; run_scope_input="9) 서울 강남3구" ;;
+            10) run_scope_label="서울 노도강"; run_scope_input="10) 서울 노도강" ;;
+            *) run_scope_label="수원시 (영통구, 광교, 화서)"; run_scope_input="1) 수원시 (영통구, 광교, 화서)" ;;
+          esac
+
+          run_progress_file="data/run-progress-s${run_shard}.json"
+
+          run_max="${INPUT_MAX_REGIONS:-0}"
+          run_overflow_pages="${INPUT_MAX_COMPLEX_PAGES_ON_OVERFLOW:-3}"
+          run_max_complexes="${INPUT_MAX_COMPLEXES_PER_REGION:-0}"
+          run_max_overflow_complexes="${INPUT_MAX_OVERFLOW_COMPLEXES_PER_REGION:-4}"
+          run_article_order="${INPUT_ARTICLE_ORDER:-prc}"
+          run_max_minutes="${INPUT_MAX_RUN_MINUTES:-165}"
+          run_rotate="false"
+          run_commit_data="${INPUT_COMMIT_DATA:-true}"
+
+          run_offset="${INPUT_START_OFFSET:-}"
+          if [[ -z "${run_offset}" ]]; then
+            run_offset="0"
+            if [[ -f "${run_progress_file}" ]]; then
+              state_offset="$(python3 -c 'import json,pathlib,sys; p=pathlib.Path(sys.argv[1]); d=json.loads(p.read_text(encoding="utf-8")); print(int(d.get("nextStartRegionOffset",0)))' "${run_progress_file}" 2>/dev/null || echo 0)"
+              if [[ "${state_offset}" =~ ^-?[0-9]+$ ]]; then
+                run_offset="${state_offset}"
+              fi
+            fi
+          fi
+
+          if [[ "${run_commit_data}" != "true" ]]; then
+            run_commit_data="false"
+          fi
+
+          if ! [[ "${run_max_overflow_complexes}" =~ ^-?[0-9]+$ ]]; then
+            run_max_overflow_complexes="4"
+          fi
+
+          case "${run_article_order}" in
+            prc|date|prc,date) ;;
+            *) run_article_order="prc" ;;
+          esac
+
+          echo "RUN_MAX_REGIONS=${run_max}" >> "$GITHUB_ENV"
+          echo "RUN_START_OFFSET=${run_offset}" >> "$GITHUB_ENV"
+          echo "RUN_MAX_COMPLEX_PAGES_ON_OVERFLOW=${run_overflow_pages}" >> "$GITHUB_ENV"
+          echo "RUN_MAX_COMPLEXES_PER_REGION=${run_max_complexes}" >> "$GITHUB_ENV"
+          echo "RUN_MAX_OVERFLOW_COMPLEXES_PER_REGION=${run_max_overflow_complexes}" >> "$GITHUB_ENV"
+          echo "RUN_ARTICLE_ORDER=${run_article_order}" >> "$GITHUB_ENV"
+          echo "RUN_MAX_RUN_MINUTES=${run_max_minutes}" >> "$GITHUB_ENV"
+          echo "RUN_COMMIT_DATA=${run_commit_data}" >> "$GITHUB_ENV"
+          echo "RUN_ROTATE_BY_DAY=${run_rotate}" >> "$GITHUB_ENV"
+          echo "RUN_REGION_SHARD=${run_shard}" >> "$GITHUB_ENV"
+          echo "RUN_REGION_SCOPE_LABEL=${run_scope_label}" >> "$GITHUB_ENV"
+          echo "RUN_REGION_SCOPE_INPUT=${run_scope_input}" >> "$GITHUB_ENV"
+          echo "RUN_PROGRESS_FILE=${run_progress_file}" >> "$GITHUB_ENV"
+          echo "Resolved config: shard=${run_shard} (${run_scope_label}), max=${run_max}, offset=${run_offset}, overflow_pages=${run_overflow_pages}, max_complexes=${run_max_complexes}, max_overflow_complexes=${run_max_overflow_complexes}, article_order=${run_article_order}, max_run_minutes=${run_max_minutes}, commit_data=${run_commit_data}, progress_file=${run_progress_file}"
+
+      # 헤드풀 Chrome이 필요하므로 xvfb 가상 디스플레이 위에서 실행한다.
+      - name: Run bot (headful Chrome on Xvfb)
+        env:
+          BOT_SAFE_MAX_REGIONS_PER_RUN: ${{ env.RUN_MAX_REGIONS }}
+          BOT_SAFE_START_REGION_OFFSET: ${{ env.RUN_START_OFFSET }}
+          BOT_SAFE_ROTATE_START_BY_DAY: ${{ env.RUN_ROTATE_BY_DAY }}
+          BOT_SAFE_REGION_SHARD: ${{ env.RUN_REGION_SHARD }}
+          BOT_SAFE_MAX_RUN_MINUTES: ${{ env.RUN_MAX_RUN_MINUTES }}
+          NAVER_SAFE_MAX_COMPLEX_PAGES_ON_OVERFLOW: ${{ env.RUN_MAX_COMPLEX_PAGES_ON_OVERFLOW }}
+          NAVER_SAFE_MAX_COMPLEXES_PER_REGION: ${{ env.RUN_MAX_COMPLEXES_PER_REGION }}
+          NAVER_SAFE_MAX_OVERFLOW_COMPLEXES_PER_REGION: ${{ env.RUN_MAX_OVERFLOW_COMPLEXES_PER_REGION }}
+          NAVER_SAFE_ARTICLE_ORDER: ${{ env.RUN_ARTICLE_ORDER }}
+        run: xvfb-run -a --server-args="-screen 0 1920x1080x24" ./gradlew --no-daemon bootRun
+
+      - name: Commit updated data
+        if: ${{ always() && github.event.inputs.commit_data != 'false' }}
+        run: |
+          BRANCH="${GITHUB_REF_NAME:-main}"
+          shopt -s nullglob
+          files=(data/apt-listings*.json data/run-progress*.json)
+          shopt -u nullglob
+
+          if (( ${#files[@]} > 0 )) && [[ -n "$(git status --porcelain -- "${files[@]}")" ]]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add "${files[@]}"
+            if git diff --cached --quiet; then
+              echo "No data changes to commit."
+              exit 0
+            fi
+            git commit -m "chore: update apt listings shard ${RUN_REGION_SHARD} [skip ci]"
+
+            pushed="false"
+            for attempt in 1 2 3; do
+              if git push origin "HEAD:${BRANCH}"; then
+                pushed="true"
+                break
+              fi
+
+              echo "Push rejected (attempt ${attempt}/3). Fetch + rebase and retry..."
+              git fetch origin "${BRANCH}"
+              if ! git rebase "origin/${BRANCH}"; then
+                git rebase --abort || true
+                echo "Rebase failed. Manual intervention required."
+                exit 1
+              fi
+            done
+
+            if [[ "${pushed}" != "true" ]]; then
+              echo "Push failed after retries."
+              exit 1
+            fi
+          else
+            echo "No data changes to commit."
+          fi
