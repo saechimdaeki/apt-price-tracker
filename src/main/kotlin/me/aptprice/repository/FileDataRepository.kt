@@ -15,8 +15,8 @@ class FileDataRepository(
     @Value("\${bot.safe.region-shard:0}") private val regionShard: Int,
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
-    private fun shardSuffix(): String = if (regionShard in 1..9) "-s$regionShard" else ""
-    private fun shardLabel(): String = if (regionShard in 1..9) "S$regionShard" else "ALL"
+    private fun shardSuffix(): String = if (regionShard in 1..10) "-s$regionShard" else ""
+    private fun shardLabel(): String = if (regionShard in 1..10) "S$regionShard" else "ALL"
     private fun listingPath() = Paths.get("data/apt-listings${shardSuffix()}.json")
     private fun runProgressPath() = Paths.get("data/run-progress${shardSuffix()}.json")
 

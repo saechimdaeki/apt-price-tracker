@@ -23,6 +23,7 @@ on:
           - "7) 성남 전역"
           - "8) 안양권"
           - "9) 서울 강남3구"
+          - "10) 서울 노도강"
       max_regions_per_run:
         description: "수동 실행 시 수집할 최대 동 수 (기본 0=전체 실행)"
         required: false
@@ -145,7 +146,7 @@ jobs:
           run_scope="${INPUT_REGION_SCOPE:-1) 수원시 (영통구, 광교, 화서)}"
           run_shard="$(echo "${run_scope}" | sed -E 's/^([0-9]+).*/\1/')"
 
-          if ! [[ "${run_shard}" =~ ^[1-9]$ ]]; then
+          if ! [[ "${run_shard}" =~ ^([1-9]|10)$ ]]; then
             run_shard="1"
           fi
 
@@ -159,6 +160,7 @@ jobs:
             7) run_scope_label="성남 전역"; run_scope_input="7) 성남 전역" ;;
             8) run_scope_label="안양권"; run_scope_input="8) 안양권" ;;
             9) run_scope_label="서울 강남3구"; run_scope_input="9) 서울 강남3구" ;;
+            10) run_scope_label="서울 노도강"; run_scope_input="10) 서울 노도강" ;;
             *) run_scope_label="수원시 (영통구, 광교, 화서)"; run_scope_input="1) 수원시 (영통구, 광교, 화서)" ;;
           esac
 

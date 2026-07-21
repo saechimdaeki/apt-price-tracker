@@ -124,6 +124,7 @@ internal object ListingStatusMerger {
         val normalizedBuildingName = fresh.buildingName.ifBlank { old.buildingName }
         val normalizedFeatureDesc = fresh.featureDesc.ifBlank { old.featureDesc }
         val normalizedTagList = fresh.tagList.ifEmpty { old.tagList }
+        val normalizedHouseholdCount = if (fresh.householdCount > 0) fresh.householdCount else old.householdCount
 
         return fresh.copy(
             entityId = old.normalizedEntityId(),
@@ -133,6 +134,7 @@ internal object ListingStatusMerger {
             buildingName = normalizedBuildingName,
             featureDesc = normalizedFeatureDesc,
             tagList = normalizedTagList,
+            householdCount = normalizedHouseholdCount,
             status = nextStatus,
             statusChangedAt = statusChangedAt,
             offMarketAt = null,

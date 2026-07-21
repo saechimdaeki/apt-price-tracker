@@ -231,6 +231,7 @@ jobs:
               area_exclusive_sqm = as_float(it.get("areaExclusiveSqm", it.get("areaSqm", 0.0)), 0.0)
               pyeong = derive_pyeong(it)
               tag_list = normalize_tag_list(it.get("tagList", []))
+              households = as_int(it.get("householdCount", 0), 0)
 
               prices = complex_price_map.get(complex_key(it), [])
               avg_price = round(sum(prices) / len(prices)) if prices else 0
@@ -259,6 +260,8 @@ jobs:
                       "statusLabel": status_label(status),
                       "priceBand": price_band_label(price),
                       "pyeongBand": pyeong_band_label(pyeong),
+                      "households": households,
+                      "householdsText": f"{households:,}세대" if households > 0 else "-",
                       "areaSupplySqmText": format_area_sqm(area_supply_sqm),
                       "areaExclusiveSqmText": format_area_sqm(area_exclusive_sqm),
                       "areaSupplyPyeong": (area_supply_sqm / 3.3058) if area_supply_sqm > 0 else 0.0,
@@ -479,9 +482,6 @@ jobs:
                 position:relative;
                 overflow:hidden;
                 backdrop-filter:blur(10px);
-                position:sticky;
-                top:12px;
-                z-index:40;
               }
               .controls:hover{box-shadow:0 20px 44px rgba(30,41,59,.18)}
               .controls::after{
@@ -495,6 +495,18 @@ jobs:
                 pointer-events:none;
               }
               .hidden-state{display:none}
+              .controls-head{display:flex;align-items:center;justify-content:space-between;gap:12px}
+              .controls-title{font-size:15px;font-weight:800;color:#334155;display:inline-flex;align-items:center;gap:8px}
+              .controls-summary{display:inline-flex;align-items:center;border:1px solid #c7d5e8;background:#f5f9ff;color:#1e3a8a;border-radius:999px;padding:3px 9px;font-size:12px;font-weight:800}
+              .controls-toggle{border:1px solid #cbd5e1;border-radius:999px;padding:8px 14px;background:linear-gradient(180deg,#ffffff 0%,#f8fafc 100%);color:#334155;font-size:13px;font-weight:800;cursor:pointer;white-space:nowrap}
+              .controls-toggle:hover{background:#eef5ff;border-color:#8fb0d8}
+              .controls-body{display:flex;flex-direction:column;gap:14px}
+              .controls.collapsed .controls-body{display:none}
+              .filter-mini{position:fixed;top:10px;left:50%;transform:translateX(-50%);z-index:60;display:flex;align-items:center;gap:10px;padding:8px 10px 8px 16px;border:1px solid #c5d4e8;border-radius:999px;background:rgba(255,255,255,.94);backdrop-filter:blur(8px);box-shadow:0 14px 34px rgba(15,23,42,.22);font-size:13px;font-weight:800;color:#334155;max-width:calc(100vw - 24px);white-space:nowrap}
+              .filter-mini[hidden]{display:none}
+              .filter-mini .fm-sep{color:#cbd5e1}
+              .filter-mini .fm-btn{border:1px solid #0f172a;background:#0f172a;color:#fff;border-radius:999px;padding:7px 13px;font-size:13px;font-weight:800;cursor:pointer}
+              .filter-mini .fm-btn:hover{filter:brightness(1.15)}
               .quick-grid{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,.85fr);gap:16px}
               .quick-card{
                 background:linear-gradient(180deg,#ffffff 0%,#f8fbff 100%);
@@ -675,7 +687,7 @@ jobs:
               .chip.s-cheap{background:#ecfeff;color:#155e75;border-color:#a5f3fc}
               .chip.s-normal{background:#f8fafc;color:#475569;border-color:#cbd5e1}
               .table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;background:linear-gradient(180deg,#ffffff 0%,#fbfdff 100%);border-top:1px solid #e4ecf8;padding-bottom:2px}
-              table{width:100%;min-width:1760px;border-collapse:collapse;font-size:15px}
+              table{width:100%;min-width:1840px;border-collapse:collapse;font-size:15px}
               th,td{border-bottom:1px solid #edf1f7;padding:10px 12px;text-align:left;vertical-align:top}
               th{background:linear-gradient(180deg,#edf5ff 0%,#e8f1ff 100%);color:#334155;position:sticky;top:0;z-index:2;font-weight:800}
               @media (min-width:901px){
@@ -699,7 +711,7 @@ jobs:
               th.sortable.active .sort-indicator{color:#0f172a}
               td.price{font-weight:800;white-space:nowrap}
               td.dim{color:var(--muted);white-space:nowrap}
-              td.city-col,td.floor-col,td.link-col{white-space:nowrap}
+              td.city-col,td.floor-col,td.link-col,td.hseh-col{white-space:nowrap}
               td.title-col{min-width:180px}
               td.feature{min-width:260px;max-width:420px;color:#334155;white-space:normal;word-break:keep-all;line-height:1.35}
               td.tags{min-width:180px;max-width:300px;color:#475569;white-space:normal;word-break:keep-all;line-height:1.35}
@@ -736,7 +748,8 @@ jobs:
                 .title-row{
                   align-items:flex-start;
                 }
-                .controls{padding:10px;position:static;top:auto}
+                .controls{padding:10px}
+                .filter-mini{top:8px;font-size:12px;gap:8px;padding:7px 8px 7px 12px}
                 .quick-grid{grid-template-columns:1fr}
                 .filter-panel-head{flex-direction:column;align-items:flex-start}
                 .filter-row{grid-template-columns:1fr}
@@ -774,7 +787,12 @@ jobs:
                 <div class=\"legend\">평균대비 = (매물가 - 단지평균가) / 단지평균가 × 100 · 급매: __BARGAIN_TH__% 이하 · 저렴: __CHEAP_TH__% 이하</div>
               </section>
 
-              <div class=\"controls\">
+              <div class=\"controls\" id=\"controlsPanel\">
+                <div class=\"controls-head\">
+                  <div class=\"controls-title\">검색 · 필터 <span class=\"controls-summary\" id=\"controlsSummary\">필터 없음</span></div>
+                  <button type=\"button\" id=\"controlsToggle\" class=\"controls-toggle\" aria-expanded=\"true\" aria-controls=\"controlsBody\">필터 접기 ▴</button>
+                </div>
+                <div class=\"controls-body\" id=\"controlsBody\">
                 <div class=\"hidden-state\">
                   <select id=\"city\" hidden aria-hidden=\"true\" tabindex=\"-1\"></select>
                   <select id=\"region\" hidden aria-hidden=\"true\" tabindex=\"-1\"></select>
@@ -798,6 +816,14 @@ jobs:
                   </div>
                 </section>
                 <div id=\"activeFilterBar\" class=\"active-filters\" hidden></div>
+                </div>
+              </div>
+
+              <div id=\"filterMiniBar\" class=\"filter-mini\" hidden>
+                <span id=\"fmTotal\">노출 0건</span>
+                <span class=\"fm-sep\">·</span>
+                <span id=\"fmFilters\">필터 없음</span>
+                <button type=\"button\" id=\"fmOpenBtn\" class=\"fm-btn\">필터 열기 ↑</button>
               </div>
 
               <div class=\"stats\">
@@ -819,6 +845,13 @@ jobs:
               const cityEl=document.getElementById('city'),regionEl=document.getElementById('region'),priceEl=document.getElementById('priceBand'),pyeongEl=document.getElementById('pyeongBand'),signalEl=document.getElementById('signal'),statusEl=document.getElementById('status'),qEl=document.getElementById('q'),regionsEl=document.getElementById('regions'),cityQuickEl=document.getElementById('cityQuick'),regionQuickEl=document.getElementById('regionQuick');
               const activeFilterBar=document.getElementById('activeFilterBar');
               const resetBtn=document.getElementById('resetBtn');
+              const controlsPanel=document.getElementById('controlsPanel');
+              const controlsToggle=document.getElementById('controlsToggle');
+              const controlsSummary=document.getElementById('controlsSummary');
+              const filterMiniBar=document.getElementById('filterMiniBar');
+              const fmTotal=document.getElementById('fmTotal');
+              const fmFilters=document.getElementById('fmFilters');
+              const fmOpenBtn=document.getElementById('fmOpenBtn');
               cityEl.hidden=true;
               cityEl.setAttribute('aria-hidden','true');
               cityEl.tabIndex=-1;
@@ -828,9 +861,9 @@ jobs:
               regionEl.tabIndex=-1;
               regionEl.style.display='none';
               const sTotal=document.getElementById('sTotal'),sRegions=document.getElementById('sRegions'),sBargain=document.getElementById('sBargain'),sCheap=document.getElementById('sCheap');
-              const CITY_COLOR={"수원":"#2563eb","용인수지":"#0f766e","서울양천":"#9333ea","서울강서":"#0284c7","서울영등포":"#0891b2","서울동작":"#dc2626","서울관악":"#ea580c","서울구로":"#16a34a","서울금천":"#ca8a04","서울성동":"#4f46e5","서울마포":"#7c3aed","서울용산":"#be123c","서울은평":"#0d9488","서울강동":"#1d4ed8","서울동대문":"#c2410c","서울광진":"#7e22ce","서울서대문":"#0f766e","서울성북":"#475569","서울강남":"#7c2d12","서울서초":"#b45309","서울송파":"#0f766e","성남판교":"#0f766e","성남분당":"#2563eb","성남수정":"#be123c","성남중원":"#0891b2","안양":"#ea580c"};
+              const CITY_COLOR={"수원":"#2563eb","용인수지":"#0f766e","서울양천":"#9333ea","서울강서":"#0284c7","서울영등포":"#0891b2","서울동작":"#dc2626","서울관악":"#ea580c","서울구로":"#16a34a","서울금천":"#ca8a04","서울성동":"#4f46e5","서울마포":"#7c3aed","서울용산":"#be123c","서울은평":"#0d9488","서울강동":"#1d4ed8","서울동대문":"#c2410c","서울광진":"#7e22ce","서울서대문":"#0f766e","서울성북":"#475569","서울강남":"#7c2d12","서울서초":"#b45309","서울송파":"#0f766e","서울노원":"#0e7490","서울도봉":"#65a30d","서울강북":"#9d174d","성남판교":"#0f766e","성남분당":"#2563eb","성남수정":"#be123c","성남중원":"#0891b2","안양":"#ea580c"};
               const SORT_DEFAULT={key:'price',dir:'asc'};
-              const FIRST_DIR={city:'asc',title:'asc',featureDesc:'asc',tagText:'asc',price:'asc',avgPrice:'desc',diffPct:'asc',signal:'asc',statusLabel:'asc',areaSupplyPyeong:'desc'};
+              const FIRST_DIR={city:'asc',title:'asc',featureDesc:'asc',tagText:'asc',price:'asc',avgPrice:'desc',diffPct:'asc',signal:'asc',statusLabel:'asc',areaSupplyPyeong:'desc',households:'desc'};
               const sortState={...SORT_DEFAULT};
               const IS_MOBILE=window.matchMedia('(max-width: 900px)').matches;
               const REGION_INITIAL_ROWS=IS_MOBILE?10:30;
@@ -898,6 +931,40 @@ jobs:
                 const countText=selectedRegions.size?`${selectedRegions.size}개 선택`:'전체';
                 regionQuickEl.innerHTML=`<div class="region-quick-title"><span>지역 빠른 선택 (복수 선택)</span><span class="quick-count">${countText}</span></div><div class="region-quick-list">${chips.join('')}</div>`;
               }
+              function activeFilterCount(){
+                let n=selectedCities.size+selectedRegions.size;
+                if(priceEl.value)n++;
+                if(pyeongEl.value)n++;
+                if(signalEl.value)n++;
+                if(statusEl.value)n++;
+                if(qEl.value.trim())n++;
+                return n;
+              }
+              function updateFilterSummaries(total){
+                const n=activeFilterCount();
+                const label=n?`활성 필터 ${n}개`:'필터 없음';
+                controlsSummary.textContent=label;
+                fmFilters.textContent=label;
+                fmTotal.textContent=`노출 ${Number(total || 0).toLocaleString('ko-KR')}건`;
+              }
+              function setControlsCollapsed(collapsed){
+                controlsPanel.classList.toggle('collapsed',collapsed);
+                controlsToggle.textContent=collapsed?'필터 펼치기 ▾':'필터 접기 ▴';
+                controlsToggle.setAttribute('aria-expanded',String(!collapsed));
+              }
+              controlsToggle.addEventListener('click',()=>{
+                setControlsCollapsed(!controlsPanel.classList.contains('collapsed'));
+              });
+              fmOpenBtn.addEventListener('click',()=>{
+                setControlsCollapsed(false);
+                controlsPanel.scrollIntoView({behavior:'smooth',block:'start'});
+              });
+              function updateMiniBarVisibility(){
+                filterMiniBar.hidden = controlsPanel.getBoundingClientRect().bottom > 0;
+              }
+              window.addEventListener('scroll',updateMiniBarVisibility,{passive:true});
+              window.addEventListener('resize',updateMiniBarVisibility);
+              updateMiniBarVisibility();
               function updateActiveFilterBar(){
                 const chips=[];
                 const cities=getSelectedCities();
@@ -999,6 +1066,7 @@ jobs:
                 sRegions.textContent=String(g.size);
                 sBargain.textContent=String(rows.filter(x=>x.signal==='급매').length);
                 sCheap.textContent=String(rows.filter(x=>x.signal==='저렴').length);
+                updateFilterSummaries(rows.length);
 
                 if(!rows.length){
                   regionsEl.innerHTML='<div class="empty">조건에 맞는 데이터가 없습니다.</div>';
@@ -1025,14 +1093,14 @@ jobs:
                   const caret=collapsed ? '▸' : '▾';
                   const collapseLabel=collapsed ? '펼치기' : '접기';
 
-                  const rowsHtml=visibleItems.map(it=>`<tr><td data-label="도시" class="city-col">${esc(it.city)}</td><td data-label="단지/매물" class="title-col">${esc(it.title)}</td><td data-label="특징" class="feature">${esc(shortFeature(it.featureDesc))}</td><td data-label="태그" class="tags">${esc(it.tagText || '-')}</td><td data-label="매물가" class="price">${esc(it.priceText)}</td><td data-label="단지 평균가">${esc(it.avgPriceText)}</td><td data-label="평균대비" class="${diffClass(it.diffPct)}">${esc(diffText(it.diffPct))}</td><td data-label="판단"><span class="badge ${signalClass(it.signal)}">${esc(it.signal)}</span></td><td data-label="상태"><span class="badge ${statusClass(it.statusLabel)}">${esc(it.statusLabel)}</span></td><td data-label="평형(공급/전용)" class="dim area-col">${esc(it.areaSupplyPyeongText)}평(${esc(it.areaSupplySqmText)}㎡) / ${esc(it.areaExclusivePyeongText)}평(${esc(it.areaExclusiveSqmText)}㎡)</td><td data-label="층" class="dim floor-col">${esc(it.floor)}</td><td data-label="매물" class="link-col"><a href="${esc(fullUrl(it.url))}" target="_blank">상세보기</a></td><td data-label="지도" class="link-col"><a href="${esc(mapUrl(it))}" target="_blank">지도</a></td></tr>`).join('');
+                  const rowsHtml=visibleItems.map(it=>`<tr><td data-label="도시" class="city-col">${esc(it.city)}</td><td data-label="단지/매물" class="title-col">${esc(it.title)}</td><td data-label="세대수" class="dim hseh-col">${esc(it.householdsText || '-')}</td><td data-label="특징" class="feature">${esc(shortFeature(it.featureDesc))}</td><td data-label="태그" class="tags">${esc(it.tagText || '-')}</td><td data-label="매물가" class="price">${esc(it.priceText)}</td><td data-label="단지 평균가">${esc(it.avgPriceText)}</td><td data-label="평균대비" class="${diffClass(it.diffPct)}">${esc(diffText(it.diffPct))}</td><td data-label="판단"><span class="badge ${signalClass(it.signal)}">${esc(it.signal)}</span></td><td data-label="상태"><span class="badge ${statusClass(it.statusLabel)}">${esc(it.statusLabel)}</span></td><td data-label="평형(공급/전용)" class="dim area-col">${esc(it.areaSupplyPyeongText)}평(${esc(it.areaSupplySqmText)}㎡) / ${esc(it.areaExclusivePyeongText)}평(${esc(it.areaExclusiveSqmText)}㎡)</td><td data-label="층" class="dim floor-col">${esc(it.floor)}</td><td data-label="매물" class="link-col"><a href="${esc(fullUrl(it.url))}" target="_blank">상세보기</a></td><td data-label="지도" class="link-col"><a href="${esc(mapUrl(it))}" target="_blank">지도</a></td></tr>`).join('');
 
                   const headerCell=(label,key='')=>{
                     if(!key) return `<th>${label}</th>`;
                     const active=sortState.key===key ? 'active' : '';
                     return `<th class="sortable ${active}" data-sort="${key}">${label}<span class="sort-indicator">${sortIndicator(key)}</span></th>`;
                   };
-                  const headerHtml=`<tr>${headerCell('도시','city')}${headerCell('단지/매물','title')}${headerCell('특징','featureDesc')}${headerCell('태그','tagText')}${headerCell('매물가','price')}${headerCell('단지 평균가','avgPrice')}${headerCell('평균대비','diffPct')}${headerCell('판단','signal')}${headerCell('상태','statusLabel')}${headerCell('평형(공급/전용)','areaSupplyPyeong')}${headerCell('층')}${headerCell('매물')}${headerCell('지도')}</tr>`;
+                  const headerHtml=`<tr>${headerCell('도시','city')}${headerCell('단지/매물','title')}${headerCell('세대수','households')}${headerCell('특징','featureDesc')}${headerCell('태그','tagText')}${headerCell('매물가','price')}${headerCell('단지 평균가','avgPrice')}${headerCell('평균대비','diffPct')}${headerCell('판단','signal')}${headerCell('상태','statusLabel')}${headerCell('평형(공급/전용)','areaSupplyPyeong')}${headerCell('층')}${headerCell('매물')}${headerCell('지도')}</tr>`;
 
                   const footerHtml = hiddenCount > 0 && !collapsed
                     ? `<div class="region-footer"><button type="button" class="load-more" data-region-key="${regionKey}">+ ${Math.min(REGION_ROWS_STEP, hiddenCount)}건 더보기 (남은 ${hiddenCount}건)</button></div>`

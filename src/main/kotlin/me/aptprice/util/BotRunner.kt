@@ -220,10 +220,27 @@ class BotRunner(
             mapOf("name" to "서울송파_방이동", "code" to "1171011100"),
             mapOf("name" to "서울송파_오금동", "code" to "1171011200"),
             mapOf("name" to "서울송파_거여동", "code" to "1171011300"),
-            mapOf("name" to "서울송파_마천동", "code" to "1171011400")
+            mapOf("name" to "서울송파_마천동", "code" to "1171011400"),
+
+            // 10) 서울 노도강 (노원/도봉/강북)
+            mapOf("name" to "서울노원_월계동", "code" to "1135010200"),
+            mapOf("name" to "서울노원_공릉동", "code" to "1135010300"),
+            mapOf("name" to "서울노원_하계동", "code" to "1135010400"),
+            mapOf("name" to "서울노원_상계동", "code" to "1135010500"),
+            mapOf("name" to "서울노원_중계동", "code" to "1135010600"),
+
+            mapOf("name" to "서울도봉_쌍문동", "code" to "1132010500"),
+            mapOf("name" to "서울도봉_방학동", "code" to "1132010600"),
+            mapOf("name" to "서울도봉_창동", "code" to "1132010700"),
+            mapOf("name" to "서울도봉_도봉동", "code" to "1132010800"),
+
+            mapOf("name" to "서울강북_미아동", "code" to "1130510100"),
+            mapOf("name" to "서울강북_번동", "code" to "1130510200"),
+            mapOf("name" to "서울강북_수유동", "code" to "1130510300"),
+            mapOf("name" to "서울강북_우이동", "code" to "1130510400")
         )
 
-        val normalizedRegionShard = if (regionShard in 1..9) regionShard else 0
+        val normalizedRegionShard = if (regionShard in 1..10) regionShard else 0
         val shardTargetRegions = targetRegions.filterIndexed { index, _ ->
             normalizedRegionShard == 0 || regionGroupByIndex(index) == normalizedRegionShard
         }
@@ -627,7 +644,8 @@ class BotRunner(
         in 38..69 -> 6
         in 70..113 -> 7
         in 114..118 -> 8
-        else -> 9
+        in 119..155 -> 9
+        else -> 10
     }
 
     private sealed class RegionFetchOutcome {

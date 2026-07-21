@@ -122,7 +122,10 @@ class NaverService(
             return emptyList()
         }
 
-        val runComplexes = selectRunComplexes(regionName, complexes)
+        val householdCounts = fetchHouseholdCounts(regionName, cortarNo)
+        val enrichedComplexes = complexes.map { it.copy(totHsehCnt = householdCounts[it.hscpNo] ?: 0) }
+
+        val runComplexes = selectRunComplexes(regionName, enrichedComplexes)
         val listings = mutableListOf<Listing>()
         var overflowExpandedComplexes = 0
         var overflowCapLogged = false
@@ -234,6 +237,36 @@ class NaverService(
             if (hscpTypeCd != "A01") return@mapNotNull null // 아파트만 수집
             ComplexInfo(hscpNo = hscpNo, hscpNm = hscpNm)
         }
+    }
+
+    // 단지별 총세대수는 목록 API에 없어서 cluster 목록 API(페이지당 20개)로 별도 조회한다.
+    // 세대수는 부가 정보라 조회 실패 시 그때까지 수집한 값만 사용하고 수집 자체는 계속 진행한다.
+    private fun fetchHouseholdCounts(regionName: String, cortarNo: String): Map<String, Int> {
+        val counts = mutableMapOf<String, Int>()
+        var page = 1
+        while (page <= MAX_HOUSEHOLD_PAGES) {
+            val url = "https://m.land.naver.com/cluster/ajax/complexList" +
+                "?cortarNo=$cortarNo&rletTpCd=APT&tradTpCd=A1&page=$page"
+            val response = requestBodyWithRetry(url, "https://m.land.naver.com/")
+            if (response.blockedByAbuse) {
+                throw AbuseBlockedException("${regionName} 세대수 조회가 abuse 차단으로 중단됨")
+            }
+            val body = response.body ?: break
+            val root = runCatching { objectMapper.readTree(body) }.getOrNull() ?: break
+            val result = root.get("result")
+            if (result == null || !result.isArray) break
+            result.forEach { node ->
+                val hscpNo = node.get("hscpNo").textOrEmpty().trim()
+                val totHsehCnt = node.get("totHsehCnt")?.asInt(0) ?: 0
+                if (hscpNo.isNotBlank() && totHsehCnt > 0) counts[hscpNo] = totHsehCnt
+            }
+            val hasMore = root.get("more")?.asBoolean(false) ?: false
+            if (!hasMore) break
+            page += 1
+            Thread.sleep(randomDelayMs(pageDelayMinMs, pageDelayMaxMs, 600L, 1_500L))
+        }
+        log.info("{} 세대수 조회 완료 - {}개 단지", regionName, counts.size)
+        return counts
     }
 
     private fun selectRunComplexes(regionName: String, complexes: List<ComplexInfo>): List<ComplexInfo> {
@@ -432,6 +465,7 @@ class NaverService(
             areaSqm = areaSqm,
             areaSupplySqm = areaSupplySqm,
             areaExclusiveSqm = areaExclusiveSqm,
+            householdCount = complex.totHsehCnt,
             pyeong = if (pyeongBaseSqm > 0.0) (pyeongBaseSqm / 3.3058).roundToInt() else 0,
             url = "https://fin.land.naver.com/articles/$articleNo"
         )
@@ -625,7 +659,8 @@ class NaverService(
 
     internal data class ComplexInfo(
         val hscpNo: String,
-        val hscpNm: String
+        val hscpNm: String,
+        val totHsehCnt: Int = 0,
     )
 
     private data class ArticleFetchResult(
@@ -653,6 +688,7 @@ class NaverService(
     companion object {
         private val RETRYABLE_STATUS_CODES = setOf(401, 403, 429, 500, 502, 503, 504)
         private const val ARTICLE_PAGE_SIZE = 30
+        private const val MAX_HOUSEHOLD_PAGES = 30
         internal const val SAME_ADDR_GROUP_FIELD = "__sameAddrGroup"
         private const val MOBILE_USER_AGENT =
             "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"
