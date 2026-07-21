@@ -6,6 +6,7 @@ import org.springframework.beans.factory.annotation.Value
 import org.springframework.stereotype.Service
 import tools.jackson.databind.JsonNode
 import tools.jackson.databind.ObjectMapper
+import tools.jackson.databind.node.ObjectNode
 import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
@@ -21,7 +22,10 @@ class AbuseBlockedException(message: String) : RuntimeException(message)
 class RegionFetchFailedException(message: String) : RuntimeException(message)
 
 @Service
-class NaverService(private val objectMapper: ObjectMapper) {
+class NaverService(
+    private val objectMapper: ObjectMapper,
+    private val browserArticleFetcher: BrowserArticleFetcher,
+) {
     private val log = LoggerFactory.getLogger(javaClass)
     private val random = Random(System.currentTimeMillis())
     private val httpClient = HttpClient.newBuilder()
@@ -110,7 +114,7 @@ class NaverService(private val objectMapper: ObjectMapper) {
             throw AbuseBlockedException("abuse 차단 쿨다운 중 (${remainSec}초 남음)")
         }
 
-        log.info("{} 수집 시작 (m.land API)", regionName)
+        log.info("{} 수집 시작 (fin.land 브라우저)", regionName)
 
         val complexes = fetchComplexes(regionName, cortarNo)
         if (complexes.isEmpty()) {
@@ -251,125 +255,126 @@ class NaverService(private val objectMapper: ObjectMapper) {
         return rotated.take(limit)
     }
 
+    // 구 m.land API가 폐기되고 신규 fin.land API는 브라우저 TLS 지문 + 헤드리스 탐지 WAF로
+    // 막혀 있어, 매물 목록은 헤드풀 Chrome 헬퍼(BrowserArticleFetcher)로 조회한다.
     private fun fetchComplexArticles(
         regionName: String,
         complex: ComplexInfo,
         allowOverflowExpansion: Boolean,
     ): ArticleFetchResult {
-        val listings = mutableListOf<Listing>()
-        val orders = parsedArticleOrders()
+        if (complex.hscpNo.toLongOrNull() == null) return ArticleFetchResult(listings = emptyList())
+
+        val orders = parsedArticleOrders().map { articleSortType(it) }.distinct()
         val configuredMaxPages = maxComplexPages.coerceAtLeast(1)
-        var effectiveMaxPages = configuredMaxPages
-
-        val firstOrder = orders.first()
-        val firstPage = fetchArticlePage(regionName, complex, firstOrder, 1)
-        if (firstPage.blockedByAbuse) {
-            return ArticleFetchResult(listings = listings, blockedByAbuse = true)
-        }
-        if (firstPage.timedOut) {
-            return ArticleFetchResult(listings = listings)
-        }
-        if (!firstPage.hasData) {
-            return ArticleFetchResult(listings = listings)
-        }
-        firstPage.nodes.forEach { node ->
-            mapArticleNode(regionName, complex, node)?.let { listings.add(it) }
+        val maxPages = if (allowOverflowExpansion) {
+            maxOf(configuredMaxPages, maxComplexPagesOnOverflow.coerceAtLeast(1))
+        } else {
+            configuredMaxPages
         }
 
-        if (allowOverflowExpansion && configuredMaxPages == 1 && firstPage.moreDataYn == "Y" && firstPage.nodes.size >= 20) {
-            val overflowMaxPages = maxComplexPagesOnOverflow.coerceAtLeast(1)
-            if (overflowMaxPages > effectiveMaxPages) {
-                effectiveMaxPages = overflowMaxPages
-                log.info(
-                    "{} {} 매물량 많음(1페이지 {}건) -> 수집 페이지를 {}까지 확장",
-                    regionName,
-                    complex.hscpNm,
-                    firstPage.nodes.size,
-                    effectiveMaxPages
-                )
-            }
+        val rawPages = try {
+            browserArticleFetcher.fetchComplexPages(
+                complexNo = complex.hscpNo,
+                orders = orders,
+                maxPages = maxPages,
+                pageSize = ARTICLE_PAGE_SIZE,
+                tradeType = "A1",
+            )
+        } catch (e: AbuseBlockedException) {
+            registerAbuseCooldown("브라우저 조회 429")
+            return ArticleFetchResult(listings = emptyList(), blockedByAbuse = true)
         }
 
-        val pageBudgets = allocatePageBudgets(effectiveMaxPages, orders.size)
-
-        // 1) 첫 정렬(보통 prc) 페이지 2..N
-        var nextPage = 2
-        var moreDataYn = firstPage.moreDataYn
-        while (nextPage <= pageBudgets[0] && moreDataYn == "Y") {
-            Thread.sleep(randomDelayMs(pageDelayMinMs, pageDelayMaxMs, 1_500L, 3_500L))
-            val pageResult = fetchArticlePage(regionName, complex, firstOrder, nextPage)
+        val listings = mutableListOf<Listing>()
+        rawPages.forEach { body ->
+            val pageResult = parseArticleListBody(regionName, complex, body)
             if (pageResult.blockedByAbuse) {
+                registerAbuseCooldown("front-api TOO_MANY_REQUESTS")
                 return ArticleFetchResult(listings = listings, blockedByAbuse = true)
             }
-            if (pageResult.timedOut || !pageResult.hasData) break
             pageResult.nodes.forEach { node ->
                 mapArticleNode(regionName, complex, node)?.let { listings.add(it) }
-            }
-            moreDataYn = pageResult.moreDataYn
-            nextPage += 1
-        }
-
-        // 2) 나머지 정렬(date 등) 페이지 1..N (총 페이지 예산은 유지)
-        for (orderIndex in 1 until orders.size) {
-            val order = orders[orderIndex]
-            val budget = pageBudgets[orderIndex]
-            if (budget <= 0) continue
-
-            var page = 1
-            var orderMoreDataYn = "Y"
-            while (page <= budget && orderMoreDataYn == "Y") {
-                Thread.sleep(randomDelayMs(pageDelayMinMs, pageDelayMaxMs, 1_500L, 3_500L))
-                val pageResult = fetchArticlePage(regionName, complex, order, page)
-                if (pageResult.blockedByAbuse) {
-                    return ArticleFetchResult(listings = listings, blockedByAbuse = true)
-                }
-                if (pageResult.timedOut || !pageResult.hasData) break
-                pageResult.nodes.forEach { node ->
-                    mapArticleNode(regionName, complex, node)?.let { listings.add(it) }
-                }
-                orderMoreDataYn = pageResult.moreDataYn
-                page += 1
             }
         }
 
         return ArticleFetchResult(
             listings = listings,
-            overflowExpanded = effectiveMaxPages > configuredMaxPages
+            overflowExpanded = allowOverflowExpansion && rawPages.size > configuredMaxPages
         )
     }
 
-    private fun fetchArticlePage(
-        regionName: String,
-        complex: ComplexInfo,
-        order: String,
-        page: Int,
-    ): ArticlePageResult {
-        val url =
-            "https://m.land.naver.com/complex/getComplexArticleList?hscpNo=${complex.hscpNo}&rletTpCd=A01&tradTpCd=A1&order=$order&page=$page"
-        val response = requestBodyWithRetry(url, "https://m.land.naver.com/complex/info/${complex.hscpNo}")
-        if (response.blockedByAbuse) {
-            return ArticlePageResult(blockedByAbuse = true)
-        }
-        if (response.timedOut) {
-            log.warn("{} {} [{}] 페이지 {} 조회 타임아웃으로 단지 수집을 중단합니다.", regionName, complex.hscpNm, order, page)
-            return ArticlePageResult(timedOut = true)
-        }
-        val body = response.body ?: return ArticlePageResult(hasData = false)
-
+    internal fun parseArticleListBody(regionName: String, complex: ComplexInfo, body: String): ArticlePageResult {
         val root = runCatching { objectMapper.readTree(body) }.getOrElse {
-            log.warn("{} {} [{}] 페이지 {} 파싱 실패: {}", regionName, complex.hscpNm, order, page, it.message)
+            log.warn("{} {} 매물 응답 파싱 실패: {}", regionName, complex.hscpNm, it.message)
+            return ArticlePageResult(hasData = false)
+        }
+        if (root.isNull || !root.isObject) {
+            log.warn("{} {} 매물 응답이 비정상입니다. body={}", regionName, complex.hscpNm, body.oneLineSnippet())
             return ArticlePageResult(hasData = false)
         }
 
-        val result = root.get("result") ?: return ArticlePageResult(hasData = false)
-        val list = result.get("list") ?: return ArticlePageResult(hasData = false)
-        if (!list.isArray || list.isEmpty) return ArticlePageResult(hasData = false)
+        if (root.get("detailCode").textOrEmpty() == "TOO_MANY_REQUESTS") {
+            registerAbuseCooldown("front-api TOO_MANY_REQUESTS")
+            return ArticlePageResult(blockedByAbuse = true)
+        }
+
+        val result = root.get("result")
+        if (result == null || result.isNull) {
+            log.warn("{} {} 매물 응답에 result 없음. body={}", regionName, complex.hscpNm, body.oneLineSnippet())
+            return ArticlePageResult(hasData = false)
+        }
+        val rawList = sequenceOf(result.get("list"), result.get("articleList"), result)
+            .firstOrNull { it != null && it.isArray }
+            ?: run {
+                log.warn("{} {} 매물 응답에 목록 필드 없음. body={}", regionName, complex.hscpNm, body.oneLineSnippet())
+                return ArticlePageResult(hasData = false)
+            }
+
+        // 응답은 대표 매물 + 동일 주소 중복 매물 그룹 구조. 그룹 키를 노드에 심어 dedup에 활용한다.
+        val nodes = mutableListOf<JsonNode>()
+        rawList.forEach { item ->
+            val rep = item.get("representativeArticleInfo")
+            if (rep != null && rep.isObject) {
+                val groupKey = rep.get("articleNumber").textOrEmpty().trim()
+                (rep as ObjectNode).put(SAME_ADDR_GROUP_FIELD, groupKey)
+                nodes.add(rep)
+                val dupList = item.get("duplicatedArticleInfo")?.get("articleInfoList")
+                if (dupList != null && dupList.isArray) {
+                    dupList.forEach { dup ->
+                        if (dup.isObject) {
+                            (dup as ObjectNode).put(SAME_ADDR_GROUP_FIELD, groupKey)
+                            nodes.add(dup)
+                        }
+                    }
+                }
+            } else if (item.isObject) {
+                nodes.add(item)
+            }
+        }
+        if (nodes.isEmpty()) {
+            return ArticlePageResult(hasData = false)
+        }
 
         return ArticlePageResult(
-            nodes = list.toList(),
-            moreDataYn = result.get("moreDataYn").textOrEmpty(),
+            nodes = nodes,
+            hasNextPage = result.get("hasNextPage")?.asBoolean(false) ?: false,
+            lastInfo = result.get("lastInfo"),
+            seed = result.get("seed").textOrEmpty(),
             hasData = true
         )
+    }
+
+    private fun articleSortType(order: String): String = when (order.lowercase()) {
+        "prc", "price_asc" -> "PRICE_ASC"
+        "date", "date_desc" -> "DATE_DESC"
+        "ranking", "ranking_desc" -> "RANKING_DESC"
+        else -> "PRICE_ASC"
+    }
+
+    private fun registerAbuseCooldown(reason: String) {
+        val cooldownMs = abuseCooldownMinutes.coerceAtLeast(1L) * 60_000L
+        blockedUntilEpochMillis = maxOf(blockedUntilEpochMillis, System.currentTimeMillis() + cooldownMs)
+        log.warn("요청 차단 감지({}) -> 쿨다운 {}분", reason, abuseCooldownMinutes)
     }
 
     private fun parsedArticleOrders(): List<String> {
@@ -381,38 +386,37 @@ class NaverService(private val objectMapper: ObjectMapper) {
         return parsed.ifEmpty { listOf("prc") }
     }
 
-    private fun allocatePageBudgets(totalPages: Int, orderCount: Int): IntArray {
-        if (orderCount <= 1) {
-            return intArrayOf(totalPages.coerceAtLeast(1))
-        }
-        val safeTotal = totalPages.coerceAtLeast(1)
-        val base = safeTotal / orderCount
-        val remainder = safeTotal % orderCount
-        val budgets = IntArray(orderCount) { index ->
-            base + if (index < remainder) 1 else 0
-        }
-        if (budgets[0] <= 0) budgets[0] = 1
-        return budgets
-    }
-
-    private fun mapArticleNode(regionName: String, complex: ComplexInfo, node: JsonNode): Listing? {
-        val articleNo = node.get("atclNo").textOrEmpty().trim()
+    internal fun mapArticleNode(regionName: String, complex: ComplexInfo, node: JsonNode): Listing? {
+        val articleNo = node.get("articleNumber").textOrEmpty().trim()
         if (articleNo.isBlank()) return null
 
-        val areaSupplySqm = parseAreaSqm(node.get("spc1"))
-        val areaExclusiveSqm = parseAreaSqm(node.get("spc2"))
-        val areaSqm = firstPositiveArea(areaExclusiveSqm, areaSupplySqm)
-        val pyeongBaseSqm = firstPositiveArea(areaSupplySqm, areaExclusiveSqm)
-        val priceText = node.get("prcInfo").textOrEmpty()
-        val parsedPrice = parsePrice(priceText)
+        val detail = node.get("articleDetail")
+        val priceInfo = node.get("priceInfo")
+        val space = node.get("spaceInfo") ?: node.get("sizeInfo")
+
+        val parsedPrice = parseFrontPrice(priceInfo?.get("dealPrice"))
         if (parsedPrice <= 0L) return null
 
-        val title = node.get("atclNm").textOrEmpty().trim().ifBlank { complex.hscpNm }
-        val featureDesc = node.get("atclFetrDesc").textOrEmpty().trim()
-        val tagList = parseTagList(node.get("tagList"))
-        val buildingName = node.get("bildNm").textOrEmpty().trim()
-        val floor = node.get("flrInfo").textOrEmpty().trim()
-        val sameAddrHash = node.get("sameAddrHash").textOrEmpty().trim()
+        val areaSupplySqm = parseAreaSqm(space?.get("supplySpace"))
+        val areaExclusiveSqm = parseAreaSqm(space?.get("exclusiveSpace"))
+        val areaSqm = firstPositiveArea(areaExclusiveSqm, areaSupplySqm)
+        val pyeongBaseSqm = firstPositiveArea(areaSupplySqm, areaExclusiveSqm)
+
+        val title = node.get("articleName").textOrEmpty().trim().ifBlank { complex.hscpNm }
+        val featureDesc = firstNonBlankText(
+            detail?.get("articleFeatureDescription"),
+            detail?.get("featureDescription"),
+            node.get("articleFeatureDescription")
+        )
+        val buildingName = firstNonBlankText(
+            detail?.get("buildingName"),
+            node.get("buildingName"),
+            detail?.get("dongName"),
+            node.get("dongName")
+        )
+        val floor = firstNonBlankText(detail?.get("floorInfo"), node.get("floorInfo"))
+        val tagList = parseTagList(node.get("tagList") ?: detail?.get("tagList"))
+        val sameAddrHash = node.get(SAME_ADDR_GROUP_FIELD).textOrEmpty().trim()
 
         return Listing(
             articleNo = articleNo,
@@ -539,6 +543,16 @@ class NaverService(private val objectMapper: ObjectMapper) {
         return this.asString("")
     }
 
+    private fun parseFrontPrice(node: JsonNode?): Long {
+        if (node == null || node.isNull) return 0L
+        // front-api dealPrice는 원 단위. 기존 저장 포맷은 만원 단위이므로 변환한다.
+        if (node.isNumber) return node.asLong(0L) / 10_000L
+        return parsePrice(node.textOrEmpty())
+    }
+
+    private fun firstNonBlankText(vararg nodes: JsonNode?): String =
+        nodes.firstNotNullOfOrNull { n -> n.textOrEmpty().trim().ifBlank { null } } ?: ""
+
     private fun parseAreaSqm(node: JsonNode?): Double {
         if (node == null || node.isNull) return 0.0
         return when {
@@ -609,7 +623,7 @@ class NaverService(private val objectMapper: ObjectMapper) {
         return replace("\n", " ").replace("\r", " ").trim().take(maxLength)
     }
 
-    private data class ComplexInfo(
+    internal data class ComplexInfo(
         val hscpNo: String,
         val hscpNm: String
     )
@@ -620,9 +634,11 @@ class NaverService(private val objectMapper: ObjectMapper) {
         val overflowExpanded: Boolean = false,
     )
 
-    private data class ArticlePageResult(
+    internal data class ArticlePageResult(
         val nodes: List<JsonNode> = emptyList(),
-        val moreDataYn: String = "N",
+        val hasNextPage: Boolean = false,
+        val lastInfo: JsonNode? = null,
+        val seed: String = "",
         val hasData: Boolean = false,
         val blockedByAbuse: Boolean = false,
         val timedOut: Boolean = false,
@@ -636,6 +652,8 @@ class NaverService(private val objectMapper: ObjectMapper) {
 
     companion object {
         private val RETRYABLE_STATUS_CODES = setOf(401, 403, 429, 500, 502, 503, 504)
+        private const val ARTICLE_PAGE_SIZE = 30
+        internal const val SAME_ADDR_GROUP_FIELD = "__sameAddrGroup"
         private const val MOBILE_USER_AGENT =
             "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"
     }

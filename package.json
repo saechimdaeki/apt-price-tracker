@@ -1,0 +1,9 @@
+{
+  "name": "apt-price-tracker-browser-helper",
+  "version": "1.0.0",
+  "private": true,
+  "description": "네이버 매물 조회용 헤드풀 Chrome 헬퍼(WAF 우회 불가한 Java HttpClient 대체)",
+  "dependencies": {
+    "playwright-core": "^1.49.0"
+  }
+}

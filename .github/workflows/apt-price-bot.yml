@@ -131,6 +131,15 @@ jobs:
           locale
           echo "JAVA_TOOL_OPTIONS=${JAVA_TOOL_OPTIONS}"
 
+      # 매물 조회는 헤드풀 Chrome(Playwright)으로 한다. 네이버 신규 API가 브라우저 TLS 지문 +
+      # 헤드리스 탐지 WAF로 막혀 있어 Java HttpClient로는 항상 429가 나기 때문.
+      # self-hosted 러너는 GUI 세션(화면 로그인 상태) + 시스템 Google Chrome 설치가 필요하다.
+      - name: Install browser helper deps
+        run: |
+          node --version
+          npm ci || npm install
+          # playwright-core는 시스템 Chrome(channel:chrome)을 사용하므로 브라우저 다운로드는 불필요
+
       - name: Resolve run config
         run: |
           run_scope="${INPUT_REGION_SCOPE:-1) 수원시 (영통구, 광교, 화서)}"

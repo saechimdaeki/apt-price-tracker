@@ -370,12 +370,12 @@ class BotRunner(
                             persistRunProgress("RUNNING")
                         }
                         CheckpointSaveResult.SUSPICIOUS_EMPTY -> {
+                            // 한 지역의 이상 데이터가 전체 런을 막지 않도록 해당 지역만 건너뛰고 계속 진행
                             stoppedByDataIssue = true
                             blockedRegionName = regionName
-                            nextStartOffset = regionAbsoluteIndex
-                            persistRunProgress("SUSPICIOUS_EMPTY", regionName)
-                            log.error("{} 수집 결과가 의심스러워 동일 지역부터 재시도하도록 오프셋을 유지합니다.", regionName)
-                            break@mainLoop
+                            nextStartOffset = (regionAbsoluteIndex + 1) % totalRegions
+                            persistRunProgress("SUSPICIOUS_EMPTY_SKIPPED", regionName)
+                            log.error("{} 수집 결과가 의심스러워 이 지역만 건너뛰고(기존 데이터 유지) 다음 지역을 계속 수집합니다.", regionName)
                         }
                     }
                 }
@@ -399,10 +399,9 @@ class BotRunner(
                     log.warn("{} 수집 실패(기존 데이터 유지): {}", regionName, outcome.reason)
                     stoppedByDataIssue = true
                     blockedRegionName = regionName
-                    nextStartOffset = regionAbsoluteIndex
-                    persistRunProgress("FETCH_FAILED", regionName)
-                    log.error("{} 수집 실패로 동일 지역부터 재시도하도록 오프셋을 유지합니다.", regionName)
-                    break@mainLoop
+                    nextStartOffset = (regionAbsoluteIndex + 1) % totalRegions
+                    persistRunProgress("FETCH_FAILED_SKIPPED", regionName)
+                    log.error("{} 수집 실패로 이 지역만 건너뛰고 다음 지역을 계속 수집합니다.", regionName)
                 }
             }
             if (!waitBeforeNextRegion(index < runRegions.lastIndex)) {
@@ -545,7 +544,7 @@ class BotRunner(
             log.warn("abuse 감지로 실행을 조기 종료했습니다. 다음 시작 오프셋: {}", nextStartOffset)
             persistRunProgress("ABUSE_ABORTED", blockedRegionName)
         } else if (stoppedByDataIssue) {
-            log.warn("데이터 이상/수집 실패로 조기 종료했습니다. 다음 시작 오프셋: {}", nextStartOffset)
+            log.warn("일부 지역을 데이터 이상/수집 실패로 건너뛰었습니다. 다음 시작 오프셋: {}", nextStartOffset)
             persistRunProgress("DATA_ISSUE", blockedRegionName)
         } else if (stoppedByTimeBudget) {
             log.warn("실행 시간 예산 도달로 조기 종료했습니다. 다음 시작 오프셋: {}", nextStartOffset)
