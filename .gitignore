@@ -40,3 +40,6 @@ out/
 ### Kotlin ###
 .kotlin
 .DS_Store
+
+# Node (browser helper)
+node_modules/
