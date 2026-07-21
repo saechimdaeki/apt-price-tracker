@@ -16,8 +16,8 @@ bot:
     max-abuse-replay-rounds: 0
     region-shard: 0
     save-run-progress: true
-    region-delay-min-ms: 3000
-    region-delay-max-ms: 6000
+    region-delay-min-ms: 2000
+    region-delay-max-ms: 4000
 
 naver:
   safe:
@@ -29,17 +29,19 @@ naver:
     max-complex-pages-on-overflow: 3
     max-overflow-complexes-per-region: 0
     overflow-batch-size: 2
-    overflow-batch-cooldown-min-ms: 20000
-    overflow-batch-cooldown-max-ms: 35000
+    overflow-batch-cooldown-min-ms: 12000
+    overflow-batch-cooldown-max-ms: 20000
     max-complexes-per-region: 0
     rotate-complexes-by-day: true
-    complex-delay-min-ms: 700
-    complex-delay-max-ms: 1500
-    complex-batch-size: 6
-    batch-cooldown-min-ms: 8000
-    batch-cooldown-max-ms: 15000
-    overflow-complex-delay-min-ms: 1000
-    overflow-complex-delay-max-ms: 2200
+    # ponytail: 브라우저 goto가 단지당 2~5초 자연 딜레이 역할이라 인위적 sleep은 최소화.
+    # 429 뜨면 여기부터 되돌릴 것 (이전: 700/1500, batch 6개마다 8~15s, overflow 1000/2200)
+    complex-delay-min-ms: 300
+    complex-delay-max-ms: 800
+    complex-batch-size: 10
+    batch-cooldown-min-ms: 5000
+    batch-cooldown-max-ms: 9000
+    overflow-complex-delay-min-ms: 800
+    overflow-complex-delay-max-ms: 1600
     page-delay-min-ms: 500
     page-delay-max-ms: 1200
     request-timeout-ms: 20000

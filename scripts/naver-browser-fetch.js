@@ -21,6 +21,7 @@ const API = 'https://fin.land.naver.com/front-api/v1/complex/article/list';
 
 let browser = null;
 let page = null;
+let primed = false; // fin.land 오리진 컨텍스트 확보 여부
 
 function send(obj) {
   process.stdout.write(JSON.stringify(obj) + '\n');
@@ -31,19 +32,32 @@ async function ensureBrowser() {
   browser = await chromium.launch({ channel: CHANNEL, headless: false });
   const ctx = await browser.newContext({ locale: 'ko-KR' });
   page = await ctx.newPage();
+  // 프라이밍 후 메인프레임 문서 네비게이션(pstatic 404 리다이렉트 등)을 차단해
+  // fin.land 오리진을 유지한다. 오리진만 유지되면 어떤 단지든 evaluate만으로 조회 가능.
+  await page.route('**/*', (route) => {
+    if (primed && route.request().isNavigationRequest() && route.request().frame() === page.mainFrame()) {
+      return route.abort('aborted');
+    }
+    return route.continue();
+  });
 }
 
-// 단지 페이지 컨텍스트에서 단일 페이지 조회.
-// complexes/{id} URL은 곧 /map으로 리다이렉트되므로, 커밋 직후(리다이렉트 전) 즉시 조회한다.
-// 그래야 fin.land 오리진 + 해당 단지 컨텍스트에서 정상 응답(200)이 온다.
+// goto는 세션당 1회(+컨텍스트 파괴 시 재시도)만: complexes/{id}에 commit 직후부터
+// 네비게이션을 차단하면 페이지가 fin.land /map에 머물러 API 조회가 계속 된다.
+async function primeContext(complexNo) {
+  primed = false;
+  await page.goto('https://fin.land.naver.com/complexes/' + complexNo, {
+    waitUntil: 'commit',
+    timeout: 25000,
+  });
+  primed = true;
+}
+
 async function fetchPage(complexNo, order, tradeType, pageSize, lastInfo, seed) {
   let lastErr;
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
-      await page.goto('https://fin.land.naver.com/complexes/' + complexNo, {
-        waitUntil: 'commit',
-        timeout: 25000,
-      });
+      if (!primed) await primeContext(complexNo);
       return await page.evaluate(async (args) => {
         const body = {
           complexNumber: args.complexNo,
@@ -63,7 +77,8 @@ async function fetchPage(complexNo, order, tradeType, pageSize, lastInfo, seed) 
         return { status: res.status, text: await res.text() };
       }, { api: API, complexNo, order, tradeType, pageSize, lastInfo, seed });
     } catch (e) {
-      lastErr = e; // 리다이렉트로 컨텍스트가 파괴된 경우 재시도
+      lastErr = e;
+      primed = false; // 컨텍스트 파괴 → 다음 시도에서 재프라이밍
       await page.waitForTimeout(800);
     }
   }
@@ -79,7 +94,11 @@ async function handle(req) {
   await ensureBrowser();
 
   const pages = [];
+  let firstOrder = true;
   for (const order of orders) {
+    // 이전엔 order마다 goto가 자연 딜레이 역할을 했으므로, 그에 준하는 간격만 유지
+    if (!firstOrder) await page.waitForTimeout(400 + Math.floor(Math.random() * 500));
+    firstOrder = false;
     let lastInfo = null;
     let seed = '';
     for (let p = 0; p < maxPages; p++) {
