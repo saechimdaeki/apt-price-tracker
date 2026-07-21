@@ -2,9 +2,17 @@ name: run with githubflow
 
 # self-hosted 러너 없이 GitHub 호스티드 러너(ubuntu-latest)만으로 수집을 돌리는 버전.
 # - 헤드풀 Chrome은 xvfb(가상 디스플레이)로 실행한다 (ubuntu-latest에 Chrome 기본 설치).
-# - 주의: 네이버 WAF가 GitHub 데이터센터 IP를 차단(429/abuse)할 수 있다.
-#   차단되면 기존 abuse 안전 로직이 실행을 중단하고 기존 데이터를 보존하므로 데이터가 깨지지는 않는다.
-#   차단이 반복되면 self-hosted 러너(run 워크플로)를 계속 사용해야 한다.
+#
+# [2026-07-21 검증 결과] 현재 GitHub 호스티드 러너로는 수집이 불가능하다.
+# - 러너 IP(Azure 해외 대역)에서 www.naver.com은 응답(302)하지만
+#   m.land.naver.com / fin.land.naver.com은 요청 자체가 무응답 드롭(타임아웃)된다.
+#   즉 부동산 도메인이 해외 데이터센터 IP를 네트워크 레벨에서 차단하므로
+#   xvfb/Chrome 여부와 무관하게 동작할 수 없다. (runs 29821018538, 29821257149)
+# - 아래 "Naver connectivity probe" 단계가 전부 200을 반환하게 되면(차단 정책 변화 시)
+#   그때는 이 워크플로가 그대로 동작할 수 있다.
+# - 그 전까지는 self-hosted 러너(run 워크플로)를 사용해야 하며, 대안은
+#   한국 리전 VPS에 self-hosted runner를 등록하는 것이다.
+# - 수집 실패 시에도 기존 안전 로직이 기존 데이터를 보존하므로 데이터가 깨지지는 않는다.
 
 on:
   workflow_dispatch:
