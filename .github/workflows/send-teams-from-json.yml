@@ -579,7 +579,7 @@ jobs:
                 font-weight:800;
                 white-space:nowrap;
               }
-              .filter-row{display:grid;grid-template-columns:repeat(4,minmax(0,1fr)) 1.4fr 130px;gap:8px}
+              .filter-row{display:grid;grid-template-columns:repeat(5,minmax(0,1fr)) 1.4fr 130px;gap:8px}
               .filter-row input,.filter-row select,.filter-row button{
                 border:1px solid #cfd8e6;
                 border-radius:10px;
@@ -809,6 +809,7 @@ jobs:
                   <div class=\"filter-row\">
                     <select id=\"priceBand\"><option value=\"\">가격대(전체)</option><option>8억 미만</option><option>8~9억대</option><option>9~10억대</option><option>10~12억대</option><option>12억 이상</option></select>
                     <select id=\"pyeongBand\"><option value=\"\">평형(공급면적 기준,전체)</option><option>20평대</option><option>30평대</option></select>
+                    <select id=\"hsehBand\"><option value=\"\">세대수(전체)</option><option value=\"0-299\">300세대 미만</option><option value=\"300-499\">300~500세대</option><option value=\"500-999\">500~1000세대</option><option value=\"1000-\">1000세대 이상</option></select>
                     <select id=\"signal\"><option value=\"\">판단(전체)</option><option>급매</option><option>저렴</option><option>보통</option></select>
                     <select id=\"status\"><option value=\"\">상태(전체)</option><option>판매중</option><option>다시 등록된 매물(판매중)</option></select>
                     <input id=\"q\" placeholder=\"지역/단지명 검색\"/>
@@ -842,7 +843,7 @@ jobs:
             <script>
               let RAW = [];
               const DATA_URL = 'report-data.json';
-              const cityEl=document.getElementById('city'),regionEl=document.getElementById('region'),priceEl=document.getElementById('priceBand'),pyeongEl=document.getElementById('pyeongBand'),signalEl=document.getElementById('signal'),statusEl=document.getElementById('status'),qEl=document.getElementById('q'),regionsEl=document.getElementById('regions'),cityQuickEl=document.getElementById('cityQuick'),regionQuickEl=document.getElementById('regionQuick');
+              const cityEl=document.getElementById('city'),regionEl=document.getElementById('region'),priceEl=document.getElementById('priceBand'),pyeongEl=document.getElementById('pyeongBand'),hsehEl=document.getElementById('hsehBand'),signalEl=document.getElementById('signal'),statusEl=document.getElementById('status'),qEl=document.getElementById('q'),regionsEl=document.getElementById('regions'),cityQuickEl=document.getElementById('cityQuick'),regionQuickEl=document.getElementById('regionQuick');
               const activeFilterBar=document.getElementById('activeFilterBar');
               const resetBtn=document.getElementById('resetBtn');
               const controlsPanel=document.getElementById('controlsPanel');
@@ -906,7 +907,10 @@ jobs:
               function renderCityQuick(){
                 const c=uniq(RAW.map(x=>x.city));
                 const noneSelected=selectedCities.size===0;
-                const chips=['<button type="button" class="city-chip '+(noneSelected?'active':'')+'" data-city="">도시(전체)</button>']
+                const seoulCities=c.filter(v=>v.startsWith('서울'));
+                const seoulAll=seoulCities.length>0 && seoulCities.every(v=>selectedCities.has(v));
+                const chips=['<button type="button" class="city-chip '+(noneSelected?'active':'')+'" data-city="">도시(전체)</button>',
+                  `<button type="button" class="city-chip ${seoulAll?'active':''}" data-group="seoul">서울 전체</button>`]
                   .concat(c.map(v=>`<button type="button" class="city-chip ${selectedCities.has(v)?'active':''}" data-city="${esc(v)}">${esc(v)}</button>`));
                 const countText=selectedCities.size?`${selectedCities.size}개 선택`:'전체';
                 cityQuickEl.innerHTML=`<div class="city-quick-title"><span>도시 빠른 선택 (복수 선택)</span><span class="quick-count">${countText}</span></div><div class="city-quick-list">${chips.join('')}</div>`;
@@ -935,6 +939,7 @@ jobs:
                 let n=selectedCities.size+selectedRegions.size;
                 if(priceEl.value)n++;
                 if(pyeongEl.value)n++;
+                if(hsehEl.value)n++;
                 if(signalEl.value)n++;
                 if(statusEl.value)n++;
                 if(qEl.value.trim())n++;
@@ -977,6 +982,7 @@ jobs:
                 regions.forEach(r=>addChip(`지역: ${regionLabel(r)}`,'region',r));
                 if(priceEl.value) addChip(`가격대: ${priceEl.value}`,'price');
                 if(pyeongEl.value) addChip(`평형: ${pyeongEl.value}`,'pyeong');
+                if(hsehEl.value) addChip(`세대수: ${hsehEl.selectedOptions[0].textContent}`,'hseh');
                 if(signalEl.value) addChip(`판단: ${signalEl.value}`,'signal');
                 if(statusEl.value) addChip(`상태: ${statusEl.value}`,'status');
                 if(qEl.value.trim()) addChip(`검색: ${qEl.value.trim()}`,'q');
@@ -1001,11 +1007,18 @@ jobs:
                 const citySet=cities.length?new Set(cities):null;
                 const regionSet=regions.length?new Set(regions):null;
                 const priceBand=priceEl.value,pyeongBand=pyeongEl.value,signal=signalEl.value,status=statusEl.value,q=qEl.value.trim().toLowerCase();
+                const hsehBand=hsehEl.value?hsehEl.value.split('-'):null;
                 return RAW.filter(x=>{
                   if(citySet && !citySet.has(x.city))return false;
                   if(regionSet && !regionSet.has(x.region))return false;
                   if(priceBand&&x.priceBand!==priceBand)return false;
                   if(pyeongBand&&x.pyeongBand!==pyeongBand)return false;
+                  if(hsehBand){
+                    const h=Number(x.households||0);
+                    if(!h)return false;
+                    if(h<Number(hsehBand[0]))return false;
+                    if(hsehBand[1]&&h>Number(hsehBand[1]))return false;
+                  }
                   if(signal&&x.signal!==signal)return false;
                   if(status&&x.statusLabel!==status)return false;
                   if(q&&!`${x.region} ${x.title} ${x.featureDesc || ''} ${x.tagText || ''}`.toLowerCase().includes(q))return false;
@@ -1125,6 +1138,7 @@ jobs:
                 if(type==='region' && value) selectedRegions.delete(value);
                 if(type==='price') priceEl.value='';
                 if(type==='pyeong') pyeongEl.value='';
+                if(type==='hseh') hsehEl.value='';
                 if(type==='signal') signalEl.value='';
                 if(type==='status') statusEl.value='';
                 if(type==='q') qEl.value='';
@@ -1201,7 +1215,11 @@ jobs:
                 const btn=event.target.closest('button.city-chip');
                 if(!btn) return;
                 const city=btn.dataset.city || '';
-                if(!city){
+                if(btn.dataset.group==='seoul'){
+                  const seoulCities=uniq(RAW.map(x=>x.city)).filter(v=>v.startsWith('서울'));
+                  const allOn=seoulCities.length>0 && seoulCities.every(v=>selectedCities.has(v));
+                  seoulCities.forEach(v=>allOn?selectedCities.delete(v):selectedCities.add(v));
+                }else if(!city){
                   selectedCities.clear();
                   selectedRegions.clear();
                 }else{
@@ -1257,7 +1275,7 @@ jobs:
                 renderRegionQuick();
                 render();
               });
-              [priceEl,pyeongEl,signalEl,statusEl].forEach(el=>el.addEventListener('change',()=>{resetRegionVisible();render();}));
+              [priceEl,pyeongEl,hsehEl,signalEl,statusEl].forEach(el=>el.addEventListener('change',()=>{resetRegionVisible();render();}));
               let qTimer=0;
               qEl.addEventListener('input',()=>{window.clearTimeout(qTimer);qTimer=window.setTimeout(()=>{resetRegionVisible();render();},180);});
               resetBtn.addEventListener('click',()=>{
@@ -1268,6 +1286,7 @@ jobs:
                 fillRegions();
                 priceEl.value='';
                 pyeongEl.value='';
+                hsehEl.value='';
                 signalEl.value='';
                 statusEl.value='';
                 qEl.value='';
