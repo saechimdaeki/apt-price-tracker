@@ -1,8 +1,8 @@
 {
   "nextStartRegionOffset" : 0,
   "totalRegions" : 8,
-  "lastRunAt" : "2026-07-21T13:29:54.093530",
+  "lastRunAt" : "2026-07-22T09:56:23.373055",
   "lastRegionName" : "서울금천_독산동",
-  "reason" : "DATA_ISSUE_NO_SUCCESS",
-  "blockedRegionName" : "서울금천_독산동"
+  "reason" : "SUCCESS",
+  "blockedRegionName" : null
 }
