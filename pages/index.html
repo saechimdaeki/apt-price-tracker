@@ -423,7 +423,7 @@
 
     .filter-row {
       display: grid;
-      grid-template-columns:repeat(5, minmax(0, 1fr)) 1.4fr 130px;
+      grid-template-columns:repeat(6, minmax(0, 1fr)) 1.4fr 130px;
       gap: 8px
     }
 
@@ -714,7 +714,7 @@
       border-top: 1px solid #e4ecf8;
       padding-bottom: 2px;
     }
-    table{width:100%;min-width:1840px;border-collapse:collapse;font-size:15px}
+    table{width:100%;min-width:1920px;border-collapse:collapse;font-size:15px}
     th,td{border-bottom:1px solid #edf1f7;padding:10px 12px;text-align:left;vertical-align:top}
 
     th {
@@ -911,6 +911,14 @@
             <option value="500-999">500~1000세대</option>
             <option value="1000-">1000세대 이상</option>
           </select>
+          <select id="ageBand">
+            <option value="">연식(전체)</option>
+            <option value="0-5">5년 이내</option>
+            <option value="6-10">6~10년</option>
+            <option value="11-20">11~20년</option>
+            <option value="21-30">21~30년</option>
+            <option value="31-">30년 초과</option>
+          </select>
           <select id="signal">
             <option value="">판단(전체)</option>
             <option>급매</option>
@@ -955,7 +963,7 @@
     const DATA_URL = 'report-data.json';
     const cityEl = document.getElementById('city'), regionEl = document.getElementById('region'),
             priceEl = document.getElementById('priceBand'), pyeongEl = document.getElementById('pyeongBand'),
-            hsehEl = document.getElementById('hsehBand'),
+            hsehEl = document.getElementById('hsehBand'), ageEl = document.getElementById('ageBand'),
             signalEl = document.getElementById('signal'), statusEl = document.getElementById('status'),
             qEl = document.getElementById('q'), regionsEl = document.getElementById('regions'),
             cityQuickEl = document.getElementById('cityQuick'), regionQuickEl = document.getElementById('regionQuick');
@@ -979,7 +987,8 @@
     const sTotal=document.getElementById('sTotal'),sRegions=document.getElementById('sRegions'),sBargain=document.getElementById('sBargain'),sCheap=document.getElementById('sCheap');
     const CITY_COLOR={"수원":"#2563eb","용인수지":"#0f766e","서울양천":"#9333ea","서울강서":"#0284c7","서울영등포":"#0891b2","서울동작":"#dc2626","서울관악":"#ea580c","서울구로":"#16a34a","서울금천":"#ca8a04","서울성동":"#4f46e5","서울마포":"#7c3aed","서울용산":"#be123c","서울은평":"#0d9488","서울강동":"#1d4ed8","서울동대문":"#c2410c","서울광진":"#7e22ce","서울서대문":"#0f766e","서울성북":"#475569","서울강남":"#7c2d12","서울서초":"#b45309","서울송파":"#0f766e","서울노원":"#0e7490","서울도봉":"#65a30d","서울강북":"#9d174d","성남판교":"#0f766e","성남분당":"#2563eb","성남수정":"#be123c","성남중원":"#0891b2","안양":"#ea580c"};
     const SORT_DEFAULT={key:'price',dir:'asc'};
-    const FIRST_DIR={city:'asc',title:'asc',featureDesc:'asc',tagText:'asc',price:'asc',avgPrice:'desc',diffPct:'asc',signal:'asc',statusLabel:'asc',areaSupplyPyeong:'desc',households:'desc'};
+    const CUR_YEAR=new Date().getFullYear();
+    const FIRST_DIR={city:'asc',title:'asc',featureDesc:'asc',tagText:'asc',price:'asc',avgPrice:'desc',diffPct:'asc',signal:'asc',statusLabel:'asc',areaSupplyPyeong:'desc',households:'desc',buildYear:'desc'};
     const sortState={...SORT_DEFAULT};
     const IS_MOBILE=window.matchMedia('(max-width: 900px)').matches;
     const REGION_INITIAL_ROWS=IS_MOBILE?10:30;
@@ -1072,6 +1081,7 @@
       if (priceEl.value) n++;
       if (pyeongEl.value) n++;
       if (hsehEl.value) n++;
+      if (ageEl.value) n++;
       if (signalEl.value) n++;
       if (statusEl.value) n++;
       if (qEl.value.trim()) n++;
@@ -1123,6 +1133,7 @@
       if (priceEl.value) addChip(`가격대: ${priceEl.value}`, 'price');
       if (pyeongEl.value) addChip(`평형: ${pyeongEl.value}`, 'pyeong');
       if (hsehEl.value) addChip(`세대수: ${hsehEl.selectedOptions[0].textContent}`, 'hseh');
+      if (ageEl.value) addChip(`연식: ${ageEl.selectedOptions[0].textContent}`, 'age');
       if (signalEl.value) addChip(`판단: ${signalEl.value}`, 'signal');
       if (statusEl.value) addChip(`상태: ${statusEl.value}`, 'status');
       if (qEl.value.trim()) addChip(`검색: ${qEl.value.trim()}`, 'q');
@@ -1152,6 +1163,7 @@
       const priceBand = priceEl.value, pyeongBand = pyeongEl.value, signal = signalEl.value, status = statusEl.value,
               q = qEl.value.trim().toLowerCase();
       const hsehBand = hsehEl.value ? hsehEl.value.split('-') : null;
+      const ageBand = ageEl.value ? ageEl.value.split('-') : null;
       return RAW.filter(x => {
         if (citySet && !citySet.has(x.city)) return false;
         if (regionSet && !regionSet.has(x.region)) return false;
@@ -1162,6 +1174,13 @@
           if (!h) return false; // 세대수 미확인 매물은 구간 선택 시 제외
           if (h < Number(hsehBand[0])) return false;
           if (hsehBand[1] && h > Number(hsehBand[1])) return false;
+        }
+        if (ageBand) {
+          const y = Number(x.buildYear || 0);
+          if (!y) return false; // 연식 미확인 매물은 구간 선택 시 제외
+          const age = CUR_YEAR - y;
+          if (age < Number(ageBand[0])) return false;
+          if (ageBand[1] && age > Number(ageBand[1])) return false;
         }
         if (signal && x.signal !== signal) return false;
         if (status && x.statusLabel !== status) return false;
@@ -1252,14 +1271,14 @@
         const caret=collapsed ? '▸' : '▾';
         const collapseLabel=collapsed ? '펼치기' : '접기';
 
-        const rowsHtml=visibleItems.map(it=>`<tr><td data-label="도시" class="city-col">${esc(it.city)}</td><td data-label="단지/매물" class="title-col">${esc(it.title)}</td><td data-label="세대수" class="dim hseh-col">${esc(it.householdsText || '-')}</td><td data-label="특징" class="feature">${esc(shortFeature(it.featureDesc))}</td><td data-label="태그" class="tags">${esc(it.tagText || '-')}</td><td data-label="매물가" class="price">${esc(it.priceText)}</td><td data-label="단지 평균가">${esc(it.avgPriceText)}</td><td data-label="평균대비" class="${diffClass(it.diffPct)}">${esc(diffText(it.diffPct))}</td><td data-label="판단"><span class="badge ${signalClass(it.signal)}">${esc(it.signal)}</span></td><td data-label="상태"><span class="badge ${statusClass(it.statusLabel)}">${esc(it.statusLabel)}</span></td><td data-label="평형(공급/전용)" class="dim area-col">${esc(it.areaSupplyPyeongText)}평(${esc(it.areaSupplySqmText)}㎡) / ${esc(it.areaExclusivePyeongText)}평(${esc(it.areaExclusiveSqmText)}㎡)</td><td data-label="층" class="dim floor-col">${esc(it.floor)}</td><td data-label="매물" class="link-col"><a href="${esc(fullUrl(it.url))}" target="_blank">상세보기</a></td><td data-label="지도" class="link-col"><a href="${esc(mapUrl(it))}" target="_blank">지도</a></td></tr>`).join('');
+        const rowsHtml=visibleItems.map(it=>`<tr><td data-label="도시" class="city-col">${esc(it.city)}</td><td data-label="단지/매물" class="title-col">${esc(it.title)}</td><td data-label="세대수" class="dim hseh-col">${esc(it.householdsText || '-')}</td><td data-label="연식" class="dim hseh-col">${esc(it.buildYearText || '-')}</td><td data-label="특징" class="feature">${esc(shortFeature(it.featureDesc))}</td><td data-label="태그" class="tags">${esc(it.tagText || '-')}</td><td data-label="매물가" class="price">${esc(it.priceText)}</td><td data-label="단지 평균가">${esc(it.avgPriceText)}</td><td data-label="평균대비" class="${diffClass(it.diffPct)}">${esc(diffText(it.diffPct))}</td><td data-label="판단"><span class="badge ${signalClass(it.signal)}">${esc(it.signal)}</span></td><td data-label="상태"><span class="badge ${statusClass(it.statusLabel)}">${esc(it.statusLabel)}</span></td><td data-label="평형(공급/전용)" class="dim area-col">${esc(it.areaSupplyPyeongText)}평(${esc(it.areaSupplySqmText)}㎡) / ${esc(it.areaExclusivePyeongText)}평(${esc(it.areaExclusiveSqmText)}㎡)</td><td data-label="층" class="dim floor-col">${esc(it.floor)}</td><td data-label="매물" class="link-col"><a href="${esc(fullUrl(it.url))}" target="_blank">상세보기</a></td><td data-label="지도" class="link-col"><a href="${esc(mapUrl(it))}" target="_blank">지도</a></td></tr>`).join('');
 
         const headerCell=(label,key='')=>{
           if(!key) return `<th>${label}</th>`;
           const active=sortState.key===key ? 'active' : '';
           return `<th class="sortable ${active}" data-sort="${key}">${label}<span class="sort-indicator">${sortIndicator(key)}</span></th>`;
         };
-        const headerHtml=`<tr>${headerCell('도시','city')}${headerCell('단지/매물','title')}${headerCell('세대수','households')}${headerCell('특징','featureDesc')}${headerCell('태그','tagText')}${headerCell('매물가','price')}${headerCell('단지 평균가','avgPrice')}${headerCell('평균대비','diffPct')}${headerCell('판단','signal')}${headerCell('상태','statusLabel')}${headerCell('평형(공급/전용)','areaSupplyPyeong')}${headerCell('층')}${headerCell('매물')}${headerCell('지도')}</tr>`;
+        const headerHtml=`<tr>${headerCell('도시','city')}${headerCell('단지/매물','title')}${headerCell('세대수','households')}${headerCell('연식','buildYear')}${headerCell('특징','featureDesc')}${headerCell('태그','tagText')}${headerCell('매물가','price')}${headerCell('단지 평균가','avgPrice')}${headerCell('평균대비','diffPct')}${headerCell('판단','signal')}${headerCell('상태','statusLabel')}${headerCell('평형(공급/전용)','areaSupplyPyeong')}${headerCell('층')}${headerCell('매물')}${headerCell('지도')}</tr>`;
 
         const footerHtml = hiddenCount > 0 && !collapsed
           ? `<div class="region-footer"><button type="button" class="load-more" data-region-key="${regionKey}">+ ${Math.min(REGION_ROWS_STEP, hiddenCount)}건 더보기 (남은 ${hiddenCount}건)</button></div>`
@@ -1285,6 +1304,7 @@
       if (type === 'price') priceEl.value = '';
       if (type === 'pyeong') pyeongEl.value = '';
       if (type === 'hseh') hsehEl.value = '';
+      if (type === 'age') ageEl.value = '';
       if (type === 'signal') signalEl.value = '';
       if (type === 'status') statusEl.value = '';
       if (type === 'q') qEl.value = '';
@@ -1421,7 +1441,7 @@
       renderRegionQuick();
       render();
     });
-    [priceEl, pyeongEl, hsehEl, signalEl, statusEl].forEach(el => el.addEventListener('change', () => {
+    [priceEl, pyeongEl, hsehEl, ageEl, signalEl, statusEl].forEach(el => el.addEventListener('change', () => {
       resetRegionVisible();
       render();
     }));
@@ -1436,6 +1456,7 @@
       priceEl.value = '';
       pyeongEl.value = '';
       hsehEl.value = '';
+      ageEl.value = '';
       signalEl.value = '';
       statusEl.value = '';
       qEl.value = '';

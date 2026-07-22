@@ -122,8 +122,11 @@ class NaverService(
             return emptyList()
         }
 
-        val householdCounts = fetchHouseholdCounts(regionName, cortarNo)
-        val enrichedComplexes = complexes.map { it.copy(totHsehCnt = householdCounts[it.hscpNo] ?: 0) }
+        val complexMetas = fetchHouseholdCounts(regionName, cortarNo)
+        val enrichedComplexes = complexes.map {
+            val meta = complexMetas[it.hscpNo]
+            it.copy(totHsehCnt = meta?.totHsehCnt ?: 0, useAprvYear = meta?.useAprvYear ?: 0)
+        }
 
         val runComplexes = selectRunComplexes(regionName, enrichedComplexes)
         val listings = mutableListOf<Listing>()
@@ -239,10 +242,10 @@ class NaverService(
         }
     }
 
-    // 단지별 총세대수는 목록 API에 없어서 cluster 목록 API(페이지당 20개)로 별도 조회한다.
-    // 세대수는 부가 정보라 조회 실패 시 그때까지 수집한 값만 사용하고 수집 자체는 계속 진행한다.
-    private fun fetchHouseholdCounts(regionName: String, cortarNo: String): Map<String, Int> {
-        val counts = mutableMapOf<String, Int>()
+    // 단지별 총세대수/사용승인일은 목록 API에 없어서 cluster 목록 API(페이지당 20개)로 별도 조회한다.
+    // 부가 정보라 조회 실패 시 그때까지 수집한 값만 사용하고 수집 자체는 계속 진행한다.
+    private fun fetchHouseholdCounts(regionName: String, cortarNo: String): Map<String, ComplexMeta> {
+        val metas = mutableMapOf<String, ComplexMeta>()
         var page = 1
         while (page <= MAX_HOUSEHOLD_PAGES) {
             val url = "https://m.land.naver.com/cluster/ajax/complexList" +
@@ -258,15 +261,20 @@ class NaverService(
             result.forEach { node ->
                 val hscpNo = node.get("hscpNo").textOrEmpty().trim()
                 val totHsehCnt = node.get("totHsehCnt")?.asInt(0) ?: 0
-                if (hscpNo.isNotBlank() && totHsehCnt > 0) counts[hscpNo] = totHsehCnt
+                // useAprvYmd 포맷: "2008.05.09." -> 앞 4자리가 연도
+                val useAprvYear = node.get("useAprvYmd").textOrEmpty().take(4).toIntOrNull()
+                    ?.takeIf { it in 1900..2100 } ?: 0
+                if (hscpNo.isNotBlank() && (totHsehCnt > 0 || useAprvYear > 0)) {
+                    metas[hscpNo] = ComplexMeta(totHsehCnt = totHsehCnt, useAprvYear = useAprvYear)
+                }
             }
             val hasMore = root.get("more")?.asBoolean(false) ?: false
             if (!hasMore) break
             page += 1
             Thread.sleep(randomDelayMs(pageDelayMinMs, pageDelayMaxMs, 600L, 1_500L))
         }
-        log.info("{} 세대수 조회 완료 - {}개 단지", regionName, counts.size)
-        return counts
+        log.info("{} 세대수/연식 조회 완료 - {}개 단지", regionName, metas.size)
+        return metas
     }
 
     private fun selectRunComplexes(regionName: String, complexes: List<ComplexInfo>): List<ComplexInfo> {
@@ -466,6 +474,7 @@ class NaverService(
             areaSupplySqm = areaSupplySqm,
             areaExclusiveSqm = areaExclusiveSqm,
             householdCount = complex.totHsehCnt,
+            approvalYear = complex.useAprvYear,
             pyeong = if (pyeongBaseSqm > 0.0) (pyeongBaseSqm / 3.3058).roundToInt() else 0,
             url = "https://fin.land.naver.com/articles/$articleNo"
         )
@@ -661,6 +670,12 @@ class NaverService(
         val hscpNo: String,
         val hscpNm: String,
         val totHsehCnt: Int = 0,
+        val useAprvYear: Int = 0,
+    )
+
+    internal data class ComplexMeta(
+        val totHsehCnt: Int,
+        val useAprvYear: Int,
     )
 
     private data class ArticleFetchResult(
