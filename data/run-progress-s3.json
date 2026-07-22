@@ -1,8 +1,8 @@
 {
   "nextStartRegionOffset" : 0,
   "totalRegions" : 9,
-  "lastRunAt" : "2026-07-21T10:42:32.851487",
+  "lastRunAt" : "2026-07-22T09:01:49.736996",
   "lastRegionName" : "서울용산_이촌동",
-  "reason" : "DATA_ISSUE",
-  "blockedRegionName" : "서울마포_아현동"
+  "reason" : "SUCCESS",
+  "blockedRegionName" : null
 }
