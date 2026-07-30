@@ -1,8 +1,8 @@
 {
-  "nextStartRegionOffset" : 4,
+  "nextStartRegionOffset" : 0,
   "totalRegions" : 8,
-  "lastRunAt" : "2026-07-30T10:00:49.496162",
-  "lastRegionName" : "서울관악_봉천동",
-  "reason" : "RUNNING",
+  "lastRunAt" : "2026-07-30T11:15:20.236603",
+  "lastRegionName" : "서울금천_독산동",
+  "reason" : "SUCCESS",
   "blockedRegionName" : null
 }
