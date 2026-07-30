@@ -1,8 +1,8 @@
 {
-  "nextStartRegionOffset" : 4,
+  "nextStartRegionOffset" : 0,
   "totalRegions" : 6,
-  "lastRunAt" : "2026-07-30T09:13:18.094519",
-  "lastRegionName" : "용인수지_신봉동",
-  "reason" : "RUNNING",
+  "lastRunAt" : "2026-07-30T09:19:37.271933",
+  "lastRegionName" : "용인수지_상현동",
+  "reason" : "SUCCESS",
   "blockedRegionName" : null
 }
