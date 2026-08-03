@@ -1,8 +1,8 @@
 {
   "nextStartRegionOffset" : 0,
   "totalRegions" : 32,
-  "lastRunAt" : "2026-08-03T17:30:13.699477",
+  "lastRunAt" : "2026-08-04T08:31:51.901577",
   "lastRegionName" : "서울은평_응암동",
-  "reason" : "DATA_ISSUE",
-  "blockedRegionName" : "서울은평_응암동"
+  "reason" : "SUCCESS",
+  "blockedRegionName" : null
 }
