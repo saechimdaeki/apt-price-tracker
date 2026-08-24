@@ -307,8 +307,10 @@ const SORTS=[
   {v:'gap',t:'평균가 대비 저렴한 순',s:'평균가 대비'},{v:'low',t:'매매가 낮은 순',s:'낮은 가격'},
   {v:'high',t:'매매가 높은 순',s:'높은 가격'},{v:'wide',t:'면적 넓은 순',s:'넓은 면적'},
   {v:'new',t:'준공 최신 순',s:'최신 준공'},{v:'big',t:'단지 큰 순',s:'큰 단지'}];
-const STEPS=['cities','budget','pyeong','age','hseh','tags','sort'];
-const KEYS=['budget','pyeong','age','hseh','floor','gap','tags'];
+// 매물 특징 태그는 fin.land 수집분에 들어오지 않는다. 데이터에 있을 때만 조건으로 노출한다.
+let HAS_TAGS=false;
+const STEPS=()=>['cities','budget','pyeong','age','hseh',...(HAS_TAGS?['tags']:[]),'sort'];
+const KEYS=()=>['budget','pyeong','age','hseh','floor','gap',...(HAS_TAGS?['tags']:[])];
 
 const BLANK=()=>({cities:[],budget:'',pyeong:'',age:'',hseh:'',floor:'',gap:'',tags:[],q:''});
 const S={view:'home',step:0,c:BLANK(),draft:null,sort:'gap',limit:24,picked:false};
@@ -392,7 +394,7 @@ function itemHtml(x,i){
       +spec('세대수',x.householdsText||'-')
       +spec('준공',x.buildYearText||'-')
       +spec('단지 평균',x.avgPriceText||'-')
-      +spec('특징',(tagsOf(x)[0]||'-'))
+      +(HAS_TAGS?spec('특징',(tagsOf(x)[0]||'-')):'')
     +'</dl>'
     +(nt?'<ul class="notes">'+nt+'</ul>':'')
     +(desc&&desc!=='-'?'<p class="desc">“'+esc(desc)+'”</p>':'')
@@ -406,7 +408,7 @@ function itemHtml(x,i){
 function condLabels(c){
   const out=[];
   if(c.cities.length) out.push(c.cities.length<=2?c.cities.join(', '):c.cities[0]+' 외 '+(c.cities.length-1)+'곳');
-  KEYS.forEach(k=>{
+  KEYS().forEach(k=>{
     if(k==='tags') return;
     const o=F[k].items.find(i=>i.v===c[k]); if(o) out.push(o.t);
   });
@@ -415,7 +417,7 @@ function condLabels(c){
   return out;
 }
 function activeCount(c){
-  return (c.cities.length?1:0)+KEYS.filter(k=>k!=='tags'&&c[k]).length+c.tags.length+(c.q.trim()?1:0);
+  return (c.cities.length?1:0)+KEYS().filter(k=>k!=='tags'&&c[k]).length+c.tags.length+(c.q.trim()?1:0);
 }
 function render(){
   const list=match(S.c).sort(ORDER[S.sort]||ORDER.gap);
@@ -465,9 +467,9 @@ function cityList(){
   return {cities,groups};
 }
 function drawWiz(){
-  const key=STEPS[S.step];
-  document.getElementById('wSteps').innerHTML=STEPS.map((_,i)=>'<i class="'+(i<=S.step?'done':'')+'"></i>').join('');
-  document.getElementById('wNo').textContent=(S.step+1)+' / '+STEPS.length;
+  const key=STEPS()[S.step];
+  document.getElementById('wSteps').innerHTML=STEPS().map((_,i)=>'<i class="'+(i<=S.step?'done':'')+'"></i>').join('');
+  document.getElementById('wNo').textContent=(S.step+1)+' / '+STEPS().length;
   const body=document.getElementById('wBody');
   if(key==='cities'){
     document.getElementById('wQ').textContent='어느 지역 매물을 볼까요?';
@@ -498,13 +500,13 @@ function drawWiz(){
       '<button class="row '+(cur===it.v?'on':'')+'" data-opt="'+esc(it.v)+'"><div class="body"><div class="t">'+esc(it.t)+'</div>'
       +(it.d?'<div class="d">'+esc(it.d)+'</div>':'')+'</div><span class="box">'+(cur===it.v?'✓':'')+'</span></button>').join('')+'</div>';
   }
-  const last=S.step===STEPS.length-1;
+  const last=S.step===STEPS().length-1;
   document.getElementById('wNext').textContent=last?'결과 보기':'다음';
   document.getElementById('wLive').innerHTML=RAW.length?'지금 조건이면 <b class="num">'+num(match(S.c).length)+'건</b>':'';
 }
-function next(){ if(S.step<STEPS.length-1){S.step++;drawWiz();window.scrollTo(0,0);} else toList(true); }
+function next(){ if(S.step<STEPS().length-1){S.step++;drawWiz();window.scrollTo(0,0);} else toList(true); }
 document.getElementById('wBody').addEventListener('click',e=>{
-  const key=STEPS[S.step];
+  const key=STEPS()[S.step];
   const city=e.target.closest('[data-city]'), grp=e.target.closest('[data-grp]'),
         opt=e.target.closest('[data-opt]'), srt=e.target.closest('[data-sort]');
   if(city){const v=city.dataset.city,a=S.c.cities,i=a.indexOf(v);i>=0?a.splice(i,1):a.push(v);drawWiz();return;}
@@ -529,7 +531,7 @@ document.getElementById('wBody').addEventListener('click',e=>{
 });
 document.getElementById('wNext').addEventListener('click',next);
 document.getElementById('wSkip').addEventListener('click',()=>{
-  const key=STEPS[S.step];
+  const key=STEPS()[S.step];
   if(key==='cities') S.c.cities=[]; else if(key==='tags') S.c.tags=[]; else if(key!=='sort') S.c[key]='';
   next();
 });
@@ -552,7 +554,7 @@ function drawPanel(scroll){
      grp('단지·동 검색','<input class="find" id="pq" placeholder="예: 래미안, 공덕동" value="'+esc(d.q)+'">')
     +grp('지역', tags(groups.map(g=>({v:'@'+g,t:g+' 전체'})),'cities',v=>cities.filter(c=>c.startsWith(v.slice(1))).every(c=>d.cities.includes(c)))
                 +tags(cities.map(c=>({v:c,t:c})),'cities',v=>d.cities.includes(v)))
-    +KEYS.map(k=>grp(F[k].label, tags(F[k].items,k, k==='tags'?(v=>d.tags.includes(v)):(v=>d[k]===v)))).join('');
+    +KEYS().map(k=>grp(F[k].label, tags(F[k].items,k, k==='tags'?(v=>d.tags.includes(v)):(v=>d[k]===v)))).join('');
   if(scroll) body.scrollTop=scroll;
 }
 function openFilter(){
@@ -616,6 +618,7 @@ async function init(){
     if(!dr.ok) throw new Error('HTTP '+dr.status);
     RAW=await dr.json(); if(!Array.isArray(RAW)) RAW=[];
     if(mr&&mr.ok) META=await mr.json().catch(()=>null);
+    HAS_TAGS=RAW.some(x=>x.tagText&&x.tagText!=='-');
     const hot=RAW.filter(x=>x.signal==='급매').length, low=RAW.filter(x=>x.signal==='저렴').length;
     document.getElementById('fTotal').textContent=num(RAW.length);
     document.getElementById('fHot').textContent=num(hot);
