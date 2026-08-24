@@ -1,10 +1,49 @@
 # apt-price-tracker
 
-네이버 모바일 부동산(`m.land.naver.com`) 매물을 수집하고, GitHub Pages 리포트/Teams 알림으로 공유하는 배치 프로젝트입니다.
+네이버 부동산 아파트 매물을 매일 수집해 **같은 단지 평균 호가와 비교**하고, GitHub Pages 웹 리포트와 Teams 알림으로 공유하는 배치 프로젝트입니다.
 
 ## 라이브 리포트
 
-<img width="1262" height="955" alt="image" src="https://github.com/user-attachments/assets/9e3414b6-7766-4b12-95cc-e18b8045441a" />
+<https://saechimdaeki.github.io/apt-price-tracker/>
+
+모바일 우선으로 만든 단일 페이지 앱입니다. 두 갈래로 들어갑니다.
+
+| 진입 | 설명 |
+| --- | --- |
+| **조건부터 좁히기** | 7단계 질문(지역 → 매매가 → 평형 → 연식 → 단지 규모 → 특징 → 정렬)에 답하면 맞는 매물만 남습니다. 답할 때마다 "지금 조건이면 N건"이 바로 갱신됩니다. |
+| **전체 목록 훑기** | 전체 매물을 바로 열고, 조건 패널에서 원하는 필터만 골라 씁니다. |
+
+고를 수 있는 조건은 9가지입니다.
+
+- 단지·동 검색어
+- 지역 (도시 복수 선택 / `서울 전체`·`성남 전체` 한 번에 선택)
+- 매매가 (6억 미만 ~ 20억 이상 6구간)
+- 평형 (20평대 / 30평대, 공급면적 기준)
+- 연식 (5·10·20·30년 이내 / 30년 초과)
+- 단지 규모 (300 / 500 / 1,000 / 2,000세대 이상)
+- 층 (저층 / 중층 / 고층 — 전체 층수 대비 위치로 계산)
+- 평균가 대비 (평균 이하 / 5% / 10% / 15% 이상 저렴)
+- 매물 특징 (역세권, 올수리, 대단지, 방 개수, 화장실 2개, 테라스 등 최대 4개 AND 조건)
+
+정렬은 평균가 대비 저렴한 순 / 매매가 낮은·높은 순 / 면적 넓은 순 / 준공 최신 순 / 단지 큰 순 6가지이고, 고른 조건은 브라우저에 저장돼 다음 방문에 그대로 복원됩니다.
+
+화면 상단의 기준 시각은 **워크플로 실행 시각이 아니라 매물이 마지막으로 수집된 시각**(`lastSeenAt` 최댓값)입니다. 수집한 지 3일이 지나면 "이미 거래됐거나 내려간 매물이 섞여 있다"는 안내가 함께 뜹니다.
+
+매물 카드의 링크는 세 가지입니다.
+
+- **매물 보기** — `fin.land.naver.com/articles/{articleNo}`. 매물이 내려가면 네이버가 404 안내를 띄웁니다(주소 형식 문제가 아니라 매물 만료입니다).
+- **단지** — `fin.land.naver.com/complexes/{hscpNo}`. 매물이 만료돼도 살아있어서, 해당 단지의 현재 매물을 바로 볼 수 있습니다.
+- **지도** — 네이버 지도에서 `동 + 단지명` 검색.
+
+### 리포트 화면 수정하기
+
+UI는 `pages/index.html` **한 파일**에만 있습니다. 워크플로는 데이터(`pages/report-data.json`)와 메타(`pages/report-meta.json`)만 만들고 HTML은 건드리지 않습니다.
+
+```bash
+python3 -m http.server 4173 --directory pages
+```
+
+새 항목을 화면에 노출하려면 리포트 워크플로의 `report_rows` 딕셔너리에 필드를 추가하고, `pages/index.html`에서 읽어 쓰면 됩니다.
 
 ## 현재 수집 범위
 
@@ -97,8 +136,19 @@
 
 - 파일: `.github/workflows/send-teams-from-json.yml`
 - 스케줄: KST 13:00 (평일)
-- 샤드 데이터 병합 후 `pages/index.html` 생성/배포
+- 샤드 데이터 병합 후 `pages/report-data.json`(매물 배열) + `pages/report-meta.json`(기준 시각·건수·임계값) 생성
+- `pages/` 전체를 GitHub Pages로 배포 (화면은 레포에 커밋된 `pages/index.html`이 그대로 쓰임)
 - Teams 웹훅이 설정되어 있으면 요약 카드 1회 전송
+
+`report-meta.json` 필드:
+
+| 키 | 의미 |
+| --- | --- |
+| `dataAt` / `dataLabel` | 매물이 마지막으로 수집된 시각 (화면 기준 시각) |
+| `runLabel` | 워크플로 실행 시각 |
+| `total`, `bargainCount`, `cheapCount` | 전체·급매·저렴 건수 |
+| `relistedCount`, `offMarketCandidateCount`, `offMarketCount` | 상태별 건수 |
+| `bargainThresholdPct`, `cheapThresholdPct` | 급매(-10%)·저렴(-5%) 판정 임계값 |
 
 ## 매물 상태 규칙
 

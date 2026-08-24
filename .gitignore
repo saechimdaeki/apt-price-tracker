@@ -43,3 +43,6 @@ out/
 
 # Node (browser helper)
 node_modules/
+
+# Claude Code (로컬 전용)
+.claude/settings.local.json
