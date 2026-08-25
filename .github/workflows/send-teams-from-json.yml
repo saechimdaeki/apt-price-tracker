@@ -24,6 +24,8 @@ jobs:
       off_market_candidate_count: ${{ steps.build.outputs.off_market_candidate_count }}
       off_market_count: ${{ steps.build.outputs.off_market_count }}
       run_label: ${{ steps.build.outputs.run_label }}
+      data_label: ${{ steps.build.outputs.data_label }}
+      top_bargains: ${{ steps.build.outputs.top_bargains }}
 
     steps:
       - name: Checkout
@@ -321,6 +323,35 @@ jobs:
                   fo.write(f"off_market_candidate_count={status_counts['OFF_MARKET_CANDIDATE']}\n")
                   fo.write(f"off_market_count={status_counts['OFF_MARKET']}\n")
                   fo.write(f"run_label={run_label}\n")
+                  fo.write(f"data_label={data_label}\n")
+                  # 같은 단지가 상위를 독식하지 않도록 단지당 1건만
+                  top = []
+                  seen_complexes = set()
+                  for r in sorted(
+                      (r for r in report_rows if r["signal"] == "급매"),
+                      key=lambda r: r["diffPct"],
+                  ):
+                      key = (r["region"], r["title"])
+                      if key in seen_complexes:
+                          continue
+                      seen_complexes.add(key)
+                      top.append(r)
+                      if len(top) == 3:
+                          break
+                  top_payload = json.dumps(
+                      [
+                          {
+                              "title": r["title"],
+                              "where": r["region"].split("_", 1)[-1],
+                              "price": r["priceText"],
+                              "diff": r["diffPct"],
+                              "url": r["url"] if r["url"].startswith("http") else "https://m.land.naver.com" + r["url"],
+                          }
+                          for r in top
+                      ],
+                      ensure_ascii=False,
+                  )
+                  fo.write(f"top_bargains={top_payload}\n")
 
           print(
               "report rows=%s, bargain=%s, cheap=%s, relisted=%s, candidate=%s, off_market=%s"
@@ -372,6 +403,8 @@ jobs:
       OFF_MARKET_CANDIDATE_COUNT: ${{ needs.build-report.outputs.off_market_candidate_count }}
       OFF_MARKET_COUNT: ${{ needs.build-report.outputs.off_market_count }}
       RUN_LABEL: ${{ needs.build-report.outputs.run_label }}
+      DATA_LABEL: ${{ needs.build-report.outputs.data_label }}
+      TOP_BARGAINS: ${{ needs.build-report.outputs.top_bargains }}
       REGION_FILTER: ${{ github.event_name == 'workflow_dispatch' && (github.event.inputs.region_filter || '') || '' }}
 
     steps:
@@ -405,8 +438,154 @@ jobs:
                   owner, repo = repository.split("/", 1)
                   page_url = f"https://{owner}.github.io/{repo}/"
 
-          bargain_threshold = "-10.0%"
-          cheap_threshold = "-5.0%"
+          data_label = (os.getenv("DATA_LABEL") or "").strip() or run_label
+          try:
+              top_bargains = json.loads(os.getenv("TOP_BARGAINS") or "[]")
+          except json.JSONDecodeError:
+              top_bargains = []
+
+          def n(value):
+              try:
+                  return f"{int(value):,}"
+              except (TypeError, ValueError):
+                  return str(value)
+
+          def stat(value, label, color=None):
+              head = {
+                  "type": "TextBlock",
+                  "text": n(value),
+                  "weight": "Bolder",
+                  "size": "ExtraLarge",
+                  "horizontalAlignment": "Center",
+                  "spacing": "None",
+              }
+              if color:
+                  head["color"] = color
+              return {
+                  "type": "Column",
+                  "width": "stretch",
+                  "items": [
+                      head,
+                      {
+                          "type": "TextBlock",
+                          "text": label,
+                          "isSubtle": True,
+                          "size": "Small",
+                          "spacing": "None",
+                          "horizontalAlignment": "Center",
+                      },
+                  ],
+              }
+
+          def bargain_row(idx, item):
+              diff = item.get("diff", 0)
+              url = item.get("url", "")
+              row = {
+                  "type": "ColumnSet",
+                  "separator": idx > 0,
+                  "spacing": "Small",
+                  "columns": [
+                      {
+                          "type": "Column",
+                          "width": "stretch",
+                          "items": [
+                              {"type": "TextBlock", "text": item.get("title", ""), "weight": "Bolder", "wrap": True, "spacing": "None"},
+                              {
+                                  "type": "TextBlock",
+                                  "text": item.get("where", ""),
+                                  "isSubtle": True,
+                                  "size": "Small",
+                                  "spacing": "None",
+                              },
+                          ],
+                      },
+                      {
+                          "type": "Column",
+                          "width": "auto",
+                          "items": [
+                              {
+                                  "type": "TextBlock",
+                                  "text": item.get("price", ""),
+                                  "weight": "Bolder",
+                                  "horizontalAlignment": "Right",
+                                  "spacing": "None",
+                              },
+                              {
+                                  "type": "TextBlock",
+                                  "text": f"평균 대비 {diff:.1f}%",
+                                  "color": "attention",
+                                  "size": "Small",
+                                  "horizontalAlignment": "Right",
+                                  "spacing": "None",
+                              },
+                          ],
+                      },
+                  ],
+              }
+              if url:
+                  # 행 전체를 눌러 매물로 이동 (Teams가 마크다운 링크를 못 살리는 경우 대비)
+                  row["selectAction"] = {"type": "Action.OpenUrl", "title": item.get("title", ""), "url": url}
+              return row
+
+          body_items = [
+              {
+                  "type": "TextBlock",
+                  "text": "아파트 매물 리포트",
+                  "weight": "Bolder",
+                  "size": "Large",
+                  "wrap": True,
+              },
+              {
+                  "type": "TextBlock",
+                  "text": f"{data_label} 수집분 · 서울·경기 20~30평대 판매중 매물",
+                  "isSubtle": True,
+                  "size": "Small",
+                  "spacing": "None",
+                  "wrap": True,
+              },
+              {
+                  "type": "ColumnSet",
+                  "spacing": "Medium",
+                  "columns": [
+                      stat(total_count, "전체 매물"),
+                      stat(bargain_count, "급매 (평균 -10%↓)", "attention"),
+                      stat(cheap_count, "저렴 (평균 -5%↓)", "good"),
+                  ],
+              },
+          ]
+
+          if top_bargains:
+              body_items.append(
+                  {
+                      "type": "TextBlock",
+                      "text": "가장 싸게 나온 매물",
+                      "weight": "Bolder",
+                      "spacing": "Medium",
+                      "wrap": True,
+                  }
+              )
+              body_items.append(
+                  {
+                      "type": "Container",
+                      "style": "emphasis",
+                      "bleed": True,
+                      "spacing": "Small",
+                      "items": [bargain_row(i, it) for i, it in enumerate(top_bargains)],
+                  }
+              )
+
+          body_items.append(
+              {
+                  "type": "FactSet",
+                  "spacing": "Medium",
+                  "facts": [
+                      {"title": "지역 필터", "value": region_filter},
+                      {"title": "판단 기준", "value": "같은 단지 평균 호가 대비 -10% 급매 / -5% 저렴"},
+                      {"title": "상태 변화", "value": f"재등록 {n(relisted_count)} · 거래종결 후보 {n(candidate_count)} · 거래종결 추정 {n(off_market_count)}"},
+                      {"title": "리포트 생성", "value": run_label},
+                  ],
+              }
+          )
 
           payload = {
               "type": "message",
@@ -418,105 +597,9 @@ jobs:
                           "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
                           "type": "AdaptiveCard",
                           "version": "1.4",
-                          "body": [
-                              {
-                                  "type": "TextBlock",
-                                  "text": "오늘의 아파트 매물 리포트",
-                                  "weight": "Bolder",
-                                  "size": "Large",
-                                  "wrap": True,
-                              },
-                              {
-                                  "type": "TextBlock",
-                                  "text": "핵심 요약만 전달합니다. 상세 매물은 웹 리포트에서 확인하세요.",
-                                  "isSubtle": True,
-                                  "spacing": "Small",
-                                  "wrap": True,
-                              },
-                              {
-                                  "type": "Container",
-                                  "style": "emphasis",
-                                  "bleed": True,
-                                  "spacing": "Medium",
-                                  "items": [
-                                      {
-                                          "type": "ColumnSet",
-                                          "columns": [
-                                              {
-                                                  "type": "Column",
-                                                  "width": "stretch",
-                                                  "items": [
-                                                      {"type": "TextBlock", "text": total_count, "weight": "Bolder", "size": "Medium", "horizontalAlignment": "Center"},
-                                                      {"type": "TextBlock", "text": "노출 매물", "isSubtle": True, "spacing": "None", "horizontalAlignment": "Center"}
-                                                  ]
-                                              },
-                                              {
-                                                  "type": "Column",
-                                                  "width": "stretch",
-                                                  "items": [
-                                                      {"type": "TextBlock", "text": bargain_count, "weight": "Bolder", "size": "Medium", "horizontalAlignment": "Center"},
-                                                      {"type": "TextBlock", "text": "급매", "isSubtle": True, "spacing": "None", "horizontalAlignment": "Center"}
-                                                  ]
-                                              },
-                                              {
-                                                  "type": "Column",
-                                                  "width": "stretch",
-                                                  "items": [
-                                                      {"type": "TextBlock", "text": cheap_count, "weight": "Bolder", "size": "Medium", "horizontalAlignment": "Center"},
-                                                      {"type": "TextBlock", "text": "저렴", "isSubtle": True, "spacing": "None", "horizontalAlignment": "Center"}
-                                                  ]
-                                              },
-                                              {
-                                                  "type": "Column",
-                                                  "width": "stretch",
-                                                  "items": [
-                                                      {"type": "TextBlock", "text": relisted_count, "weight": "Bolder", "size": "Medium", "horizontalAlignment": "Center"},
-                                                      {"type": "TextBlock", "text": "다시 등록된 매물(판매중)", "isSubtle": True, "spacing": "None", "horizontalAlignment": "Center"}
-                                                  ]
-                                              }
-                                          ]
-                                      },
-                                      {
-                                          "type": "ColumnSet",
-                                          "spacing": "Small",
-                                          "columns": [
-                                              {
-                                                  "type": "Column",
-                                                  "width": "stretch",
-                                                  "items": [
-                                                      {"type": "TextBlock", "text": candidate_count, "weight": "Bolder", "size": "Medium", "horizontalAlignment": "Center"},
-                                                      {"type": "TextBlock", "text": "거래종결 후보", "isSubtle": True, "spacing": "None", "horizontalAlignment": "Center"}
-                                                  ]
-                                              },
-                                              {
-                                                  "type": "Column",
-                                                  "width": "stretch",
-                                                  "items": [
-                                                      {"type": "TextBlock", "text": off_market_count, "weight": "Bolder", "size": "Medium", "horizontalAlignment": "Center"},
-                                                      {"type": "TextBlock", "text": "거래종결 추정", "isSubtle": True, "spacing": "None", "horizontalAlignment": "Center"}
-                                                  ]
-                                              }
-                                          ]
-                                      }
-                                  ]
-                              },
-                              {
-                                  "type": "FactSet",
-                                  "spacing": "Medium",
-                                  "facts": [
-                                      {"title": "기준시각", "value": run_label},
-                                      {"title": "필터", "value": region_filter},
-                                      {"title": "급매/저렴 기준", "value": f"{bargain_threshold} / {cheap_threshold}"},
-                                      {"title": "평균대비", "value": "(매물가-단지평균가)/단지평균가"},
-                                  ],
-                              },
-                          ],
+                          "body": body_items,
                           "actions": [
-                              {
-                                  "type": "Action.OpenUrl",
-                                  "title": "웹 리포트 열기",
-                                  "url": page_url,
-                              }
+                              {"type": "Action.OpenUrl", "title": "조건 골라서 보기", "url": page_url},
                           ],
                       },
                   }

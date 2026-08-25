@@ -156,6 +156,10 @@ python3 -m http.server 4173 --directory pages
 - `pages/` 전체를 GitHub Pages로 배포 (화면은 레포에 커밋된 `pages/index.html`이 그대로 쓰임)
 - Teams 웹훅이 설정되어 있으면 요약 카드 1회 전송
 
+<img src="docs/images/teams-card.png" width="560" alt="Teams 알림 카드">
+
+카드는 웹 리포트와 같은 기준(수집 시각, 급매/저렴 정의)으로 맞춰져 있고, 가장 싸게 나온 매물 3건을 단지 중복 없이 보여줍니다. 각 행을 누르면 해당 매물로, 버튼을 누르면 웹 리포트로 이동합니다.
+
 `report-meta.json` 필드:
 
 | 키 | 의미 |
