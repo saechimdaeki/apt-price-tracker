@@ -1,8 +1,8 @@
 {
   "nextStartRegionOffset" : 0,
   "totalRegions" : 44,
-  "lastRunAt" : "2026-08-06T10:51:43.084995",
+  "lastRunAt" : "2026-08-25T11:29:05.878642",
   "lastRegionName" : "성남판교_하산운동",
-  "reason" : "DATA_ISSUE",
-  "blockedRegionName" : "성남수정_태평동"
+  "reason" : "SUCCESS",
+  "blockedRegionName" : null
 }
