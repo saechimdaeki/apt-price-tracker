@@ -79,6 +79,7 @@
     .home h1{font-size:26px;line-height:1.45;font-weight:700;margin:16px 0 0;letter-spacing:-.025em}
     .home h1 em{font-style:normal;background:linear-gradient(180deg,transparent 62%,var(--acc-weak) 62%)}
     .home p{font-size:15px;line-height:1.7;color:var(--ink-2);margin:14px 0 0}
+    .home p b{font-weight:700;color:var(--ink)}
     .facts{display:grid;grid-template-columns:repeat(3,1fr);border:1px solid var(--line);border-radius:var(--r);background:var(--surface);margin:26px 0 0;overflow:hidden}
     .fact{padding:16px 14px;border-left:1px solid var(--line)}
     .fact:first-child{border-left:0}
@@ -156,7 +157,9 @@
     .specs{display:grid;grid-template-columns:1fr 1fr;gap:2px 12px;margin-top:12px;padding-top:12px;border-top:1px solid var(--line)}
     .spec{display:flex;justify-content:space-between;gap:8px;font-size:12.5px;padding:3px 0}
     .spec dt{color:var(--ink-3);font-weight:500}
-    .spec dd{margin:0;font-weight:600;color:var(--ink-2)}
+    .spec dd{margin:0;font-weight:600;color:var(--ink-2);white-space:nowrap}
+    .spec.wide{grid-column:1/-1}
+    .spec .dim{color:var(--ink-3);font-weight:500}
     .notes{margin-top:10px;display:grid;gap:4px}
     .note{font-size:12.5px;font-weight:600;color:var(--ink-2);display:flex;gap:6px;line-height:1.5}
     .note s{text-decoration:none;color:var(--acc);font-weight:700}
@@ -197,8 +200,8 @@
 <section id="vHome" class="screen on">
   <div class="wrap home">
     <p class="logo">apt scanner</p>
-    <h1>매일 모은 매물을<br><em>같은 단지 평균가</em>와 비교합니다.</h1>
-    <p>네이버 부동산에서 수집한 20~30평대 매물을 단지별 평균가와 견줘, 얼마나 싸게 나왔는지 계산해 둡니다.</p>
+    <h1>매일 모은 매물을<br><em>같은 평형 평균가</em>와 비교합니다.</h1>
+    <p>네이버 부동산에서 수집한 20~30평대 매물을 <b>같은 단지·같은 평형</b> 매물들의 평균 호가와 견줘, 얼마나 싸게 나왔는지 계산해 둡니다.</p>
 
     <div class="facts">
       <div class="fact"><b class="num" id="fTotal">–</b><span>전체 매물</span></div>
@@ -219,7 +222,7 @@
       </button>
     </div>
 
-    <p class="stamp">급매는 같은 단지 평균 호가보다 10% 이상, 저렴은 5% 이상 낮은 매물입니다.</p>
+    <p class="stamp">급매는 같은 평형 평균 호가보다 10% 이상, 저렴은 5% 이상 낮은 매물입니다. 같은 평형 매물이 하나뿐이면 비교하지 않습니다.</p>
     <p class="stamp" id="stamp" style="margin-top:6px">데이터 불러오는 중…</p>
     <p class="warn" id="stale" hidden></p>
   </div>
@@ -296,7 +299,7 @@ const F={
     {v:'300-',t:'300세대 이상'},{v:'500-',t:'500세대 이상'},{v:'1000-',t:'1,000세대 이상'},{v:'2000-',t:'2,000세대 이상'}]},
   floor:{label:'층',q:'층수 조건이 있나요?',qs:'전체 층수 대비 위치로 나눕니다',items:[
     {v:'저',t:'저층'},{v:'중',t:'중층'},{v:'고',t:'고층'}]},
-  gap:{label:'평균가 대비',q:'평균가보다 얼마나 싸야 하나요?',qs:'같은 단지·같은 지역 매물의 평균 호가와 비교합니다',items:[
+  gap:{label:'평균가 대비',q:'평균가보다 얼마나 싸야 하나요?',qs:'같은 단지에서 면적이 같은 매물들의 평균 호가와 비교합니다',items:[
     {v:'0',t:'평균가 이하'},{v:'5',t:'5% 이상 저렴'},{v:'10',t:'10% 이상 저렴 (급매)'},{v:'15',t:'15% 이상 저렴'}]},
   tags:{label:'매물 특징',q:'꼭 필요한 특징이 있나요?',qs:'고른 특징을 모두 가진 매물만 남깁니다',multi:4,items:[
     {v:'역세권',t:'역세권'},{v:'올수리',t:'올수리'},{v:'대단지',t:'대단지'},{v:'방세개',t:'방 3개'},
@@ -365,10 +368,13 @@ const ORDER={
 };
 
 /* ===== 매물 카드 ===== */
+function comparable(x){ return Number(x.peerCount||0)>=2; }
 function notes(x){
   const out=[], d=Number(x.diffPct||0), y=Number(x.buildYear||0), age=y?YEAR-y:0, t=tagsOf(x);
-  if(d<=-5) out.push(['같은 단지 평균 호가보다 '+Math.abs(d).toFixed(1)+'% 낮습니다',0]);
-  else if(d>=5) out.push(['같은 단지 평균 호가보다 '+d.toFixed(1)+'% 높습니다',1]);
+  const peer=(x.peerAreaText&&x.peerAreaText!=='-'?x.peerAreaText:'같은 평형')+' 매물 '+Number(x.peerCount||0)+'건';
+  if(!comparable(x)) out.push(['같은 평형 매물이 이 건뿐이라 평균과 비교하지 않았습니다',1]);
+  else if(d<=-5) out.push([peer+' 평균보다 '+Math.abs(d).toFixed(1)+'% 낮습니다',0]);
+  else if(d>=5) out.push([peer+' 평균보다 '+d.toFixed(1)+'% 높습니다',1]);
   if(age>=30) out.push(['준공 '+age+'년차 — 수리 상태와 재건축 진행 여부를 확인하세요',1]);
   else if(y && age<=5) out.push(['준공 '+age+'년차 신축입니다',0]);
   if(t.includes('올수리')) out.push(['올수리 매물로 등록돼 있습니다',0]);
@@ -384,7 +390,8 @@ function itemHtml(x,i){
   const desc=String(x.featureDesc||'').trim();
   return '<article class="item">'
     +'<div class="i-top"><span class="i-price num">'+esc(x.priceText)+'</span>'
-      +'<span class="gap '+g+' num">'+(d>0?'+':'')+d.toFixed(1)+'%</span>'
+      +(comparable(x)?'<span class="gap '+g+' num">'+(d>0?'+':'')+d.toFixed(1)+'%</span>'
+                     :'<span class="gap zero">비교 대상 없음</span>')
       +'<span class="flag '+flag+'">'+esc(x.signal)+'</span></div>'
     +'<h3 class="i-name">'+rank+esc(x.title)+'</h3>'
     +'<p class="i-where">'+esc(x.city)+' · '+esc(dong(x.region))+'</p>'
@@ -393,7 +400,7 @@ function itemHtml(x,i){
       +spec('층',x.floor||'-')
       +spec('세대수',x.householdsText||'-')
       +spec('준공',x.buildYearText||'-')
-      +spec('단지 평균',x.avgPriceText||'-')
+      +'<div class="spec wide"><dt>'+esc(x.peerAreaText&&x.peerAreaText!=='-'?x.peerAreaText+' 평균':'같은 평형 평균')+'</dt>'+'<dd class="num">'+esc(x.avgPriceText||'-')+(comparable(x)?' <span class="dim">('+num(x.peerCount)+'건)</span>':'')+'</dd></div>'
       +(HAS_TAGS?spec('특징',(tagsOf(x)[0]||'-')):'')
     +'</dl>'
     +(nt?'<ul class="notes">'+nt+'</ul>':'')

@@ -170,13 +170,22 @@ jobs:
               title = str(item.get("title", "")).strip()
               return f"{region}::{hscp_no or title}"
 
-          complex_price_map = {}
+          def area_key(item):
+              """전용면적(㎡) 반올림 = 같은 평형 타입. 같은 단지라도 20평대와 50평대는 따로 본다."""
+              area = as_float(item.get("areaExclusiveSqm", item.get("areaSqm", 0.0)), 0.0)
+              if area <= 0:
+                  area = as_float(item.get("areaSupplySqm", 0.0), 0.0)
+              return str(int(round(area))) if area > 0 else "-"
+
+          def peer_key(item):
+              return f"{complex_key(item)}::{area_key(item)}"
+
+          peer_price_map = {}
           for it in live_listings:
-              key = complex_key(it)
               p = as_int(it.get("price", 0), 0)
               if p <= 0:
                   continue
-              complex_price_map.setdefault(key, []).append(p)
+              peer_price_map.setdefault(peer_key(it), []).append(p)
 
           def price_band_label(price):
               if price < 80_000:
@@ -235,10 +244,13 @@ jobs:
               households = as_int(it.get("householdCount", 0), 0)
               build_year = as_int(it.get("approvalYear", 0), 0)
 
-              prices = complex_price_map.get(complex_key(it), [])
+              prices = peer_price_map.get(peer_key(it), [])
+              peer_count = len(prices)
               avg_price = round(sum(prices) / len(prices)) if prices else 0
-              diff_pct = ((price - avg_price) / avg_price * 100.0) if avg_price > 0 else 0.0
-              signal = price_signal(diff_pct)
+              # 같은 평형 매물이 이 건뿐이면 비교 기준이 없다 (평균 = 자기 자신)
+              comparable = peer_count >= 2 and avg_price > 0
+              diff_pct = ((price - avg_price) / avg_price * 100.0) if comparable else 0.0
+              signal = price_signal(diff_pct) if comparable else "보통"
 
               if signal == "급매":
                   bargain_count += 1
@@ -255,8 +267,10 @@ jobs:
                       "tagText": compact_text(" · ".join(tag_list[:6]) if tag_list else "-", 84),
                       "price": price,
                       "priceText": format_price(price),
-                      "avgPrice": avg_price,
-                      "avgPriceText": format_price(avg_price) if avg_price > 0 else "-",
+                      "avgPrice": avg_price if comparable else 0,
+                      "avgPriceText": format_price(avg_price) if comparable else "-",
+                      "peerCount": peer_count,
+                      "peerAreaText": (f"전용 {area_key(it)}㎡" if area_key(it) != "-" else "-"),
                       "diffPct": round(diff_pct, 2),
                       "signal": signal,
                       "statusLabel": status_label(status),
@@ -580,7 +594,7 @@ jobs:
                   "spacing": "Medium",
                   "facts": [
                       {"title": "지역 필터", "value": region_filter},
-                      {"title": "판단 기준", "value": "같은 단지 평균 호가 대비 -10% 급매 / -5% 저렴"},
+                      {"title": "판단 기준", "value": "같은 단지·같은 평형 평균 호가 대비 -10% 급매 / -5% 저렴"},
                       {"title": "상태 변화", "value": f"재등록 {n(relisted_count)} · 거래종결 후보 {n(candidate_count)} · 거래종결 추정 {n(off_market_count)}"},
                       {"title": "리포트 생성", "value": run_label},
                   ],
