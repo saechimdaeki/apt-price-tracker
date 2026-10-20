@@ -1,8 +1,8 @@
 {
   "nextStartRegionOffset" : 0,
   "totalRegions" : 8,
-  "lastRunAt" : "2026-10-15T09:02:28.424280",
+  "lastRunAt" : "2026-10-20T11:24:10.633403",
   "lastRegionName" : "서울영등포_여의도동",
-  "reason" : "DATA_ISSUE",
-  "blockedRegionName" : "서울강서_내발산동"
+  "reason" : "SUCCESS",
+  "blockedRegionName" : null
 }
